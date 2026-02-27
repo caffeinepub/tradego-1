@@ -1,0 +1,219 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.375rem;
+
+    /* TradeGo.1 Dark Trading Theme */
+    --background: 0.112 0.018 240;
+    --foreground: 0.92 0.01 240;
+    --card: 0.13 0.022 240;
+    --card-foreground: 0.92 0.01 240;
+    --popover: 0.15 0.025 240;
+    --popover-foreground: 0.92 0.01 240;
+    --primary: 0.74 0.16 175;
+    --primary-foreground: 0.10 0.018 240;
+    --secondary: 0.18 0.025 240;
+    --secondary-foreground: 0.75 0.015 240;
+    --muted: 0.18 0.022 240;
+    --muted-foreground: 0.50 0.02 240;
+    --accent: 0.20 0.03 240;
+    --accent-foreground: 0.92 0.01 240;
+    --destructive: 0.62 0.22 22;
+    --destructive-foreground: 0.92 0.01 240;
+    --border: 0.22 0.03 240;
+    --input: 0.20 0.028 240;
+    --ring: 0.74 0.16 175;
+
+    /* Brand tokens */
+    --gain: 0.74 0.16 175;
+    --gain-muted: 0.20 0.05 175;
+    --loss: 0.62 0.22 22;
+    --loss-muted: 0.22 0.07 22;
+    --gold: 0.78 0.16 72;
+    --gold-muted: 0.22 0.05 72;
+
+    /* Charts */
+    --chart-1: 0.74 0.16 175;
+    --chart-2: 0.62 0.22 22;
+    --chart-3: 0.78 0.16 72;
+    --chart-4: 0.65 0.18 240;
+    --chart-5: 0.60 0.15 280;
+
+    /* Sidebar */
+    --sidebar: 0.10 0.02 240;
+    --sidebar-foreground: 0.92 0.01 240;
+    --sidebar-primary: 0.74 0.16 175;
+    --sidebar-primary-foreground: 0.10 0.018 240;
+    --sidebar-accent: 0.18 0.025 240;
+    --sidebar-accent-foreground: 0.92 0.01 240;
+    --sidebar-border: 0.22 0.03 240;
+    --sidebar-ring: 0.74 0.16 175;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Space Grotesk', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace !important;
+  }
+}
+
+@layer utilities {
+  /* Price blink animation */
+  @keyframes price-up {
+    0% { background-color: oklch(var(--gain-muted)); color: oklch(var(--gain)); }
+    100% { background-color: transparent; }
+  }
+
+  @keyframes price-down {
+    0% { background-color: oklch(var(--loss-muted)); color: oklch(var(--loss)); }
+    100% { background-color: transparent; }
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.8); }
+  }
+
+  .price-blink-up {
+    animation: price-up 0.8s ease-out;
+  }
+
+  .price-blink-down {
+    animation: price-down 0.8s ease-out;
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.4s ease-out both;
+  }
+
+  .animate-pulse-dot {
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+
+  .text-gain {
+    color: oklch(var(--gain));
+  }
+
+  .text-loss {
+    color: oklch(var(--loss));
+  }
+
+  .text-gold {
+    color: oklch(var(--gold));
+  }
+
+  .bg-gain {
+    background-color: oklch(var(--gain));
+  }
+
+  .bg-loss {
+    background-color: oklch(var(--loss));
+  }
+
+  .bg-gold {
+    background-color: oklch(var(--gold));
+  }
+
+  .bg-gain-muted {
+    background-color: oklch(var(--gain-muted));
+  }
+
+  .bg-loss-muted {
+    background-color: oklch(var(--loss-muted));
+  }
+
+  .bg-gold-muted {
+    background-color: oklch(var(--gold-muted));
+  }
+
+  .border-gain {
+    border-color: oklch(var(--gain));
+  }
+
+  .border-loss {
+    border-color: oklch(var(--loss));
+  }
+
+  .border-gold {
+    border-color: oklch(var(--gold));
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: oklch(var(--background));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: oklch(var(--border));
+    border-radius: 2px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(var(--muted-foreground));
+  }
+
+  /* Terminal grid lines */
+  .terminal-grid {
+    background-image:
+      linear-gradient(oklch(var(--border) / 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(var(--border) / 0.3) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* Glow effects */
+  .glow-gain {
+    box-shadow: 0 0 20px oklch(var(--gain) / 0.15), 0 0 40px oklch(var(--gain) / 0.05);
+  }
+
+  .glow-loss {
+    box-shadow: 0 0 20px oklch(var(--loss) / 0.15), 0 0 40px oklch(var(--loss) / 0.05);
+  }
+
+  .glow-gold {
+    box-shadow: 0 0 20px oklch(var(--gold) / 0.2), 0 0 40px oklch(var(--gold) / 0.05);
+  }
+
+  /* Gradient text */
+  .gradient-brand {
+    background: linear-gradient(135deg, oklch(var(--gain)) 0%, oklch(var(--gold)) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Stagger animations */
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
+}

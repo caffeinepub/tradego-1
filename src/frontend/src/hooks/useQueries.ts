@@ -6,6 +6,7 @@ import type {
   TradeType,
   WithdrawalMethod,
 } from "../backend.d";
+import { useSession } from "../contexts/SessionContext";
 import { useActor } from "./useActor";
 
 export function useGetAllInstruments() {
@@ -36,13 +37,14 @@ export function useGetInstrumentsByCategory(category: Category) {
 
 export function useGetPortfolioSummary() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["portfolio"],
     queryFn: async () => {
-      if (!actor) return null;
-      return actor.getPortfolioSummary();
+      if (!actor || !token) return null;
+      return actor.getPortfolioSummary(token);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 10_000,
     refetchInterval: 15_000,
   });
@@ -50,51 +52,60 @@ export function useGetPortfolioSummary() {
 
 export function useGetUserProfile() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["userProfile"],
     queryFn: async () => {
-      if (!actor) return null;
+      if (!actor || !token) return null;
       try {
-        return await actor.getUserProfile();
+        // Use token-based profile fetch
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const a = actor as any;
+        if (a.getUserProfileByToken)
+          return await a.getUserProfileByToken(token);
+        if (a.getProfileByToken) return await a.getProfileByToken(token);
+        return null;
       } catch {
         return null;
       }
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 60_000,
   });
 }
 
 export function useGetWatchlist() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["watchlist"],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor || !token) return [];
       try {
-        return await actor.getWatchlist();
+        return await actor.getWatchlist(token);
       } catch {
         return [];
       }
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 30_000,
   });
 }
 
 export function useGetOpenPositions() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["positions"],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor || !token) return [];
       try {
-        return await actor.getOpenPositions();
+        return await actor.getOpenPositions(token);
       } catch {
         return [];
       }
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 10_000,
     refetchInterval: 15_000,
   });
@@ -102,57 +113,25 @@ export function useGetOpenPositions() {
 
 export function useGetOrders() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["orders"],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor || !token) return [];
       try {
-        return await actor.getOrders();
+        return await actor.getOrders(token);
       } catch {
         return [];
       }
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 10_000,
-  });
-}
-
-export function useRegisterUser() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      name,
-      email,
-      mobile,
-    }: { name: string; email: string; mobile: string }) => {
-      if (!actor) throw new Error("No actor");
-      await actor.registerUser(name, email, mobile);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["userProfile"] });
-      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
-    },
-  });
-}
-
-export function useDeposit() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (amount: number) => {
-      if (!actor) throw new Error("No actor");
-      await actor.deposit(amount);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
-      queryClient.invalidateQueries({ queryKey: ["userProfile"] });
-    },
   });
 }
 
 export function useRequestWithdrawal() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -171,7 +150,9 @@ export function useRequestWithdrawal() {
       ifscCode?: string;
     }) => {
       if (!actor) throw new Error("No actor");
+      if (!token) throw new Error("Not authenticated");
       return actor.requestWithdrawal(
+        token,
         amount,
         withdrawalMethod,
         upiId ?? null,
@@ -202,14 +183,35 @@ export function useGetPaymentSettings() {
 
 export function useSetPaymentSettings() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       upiId,
       qrCodeData,
-    }: { upiId: string; qrCodeData: string }) => {
+      bankAccountHolder,
+      bankName,
+      bankAccountNumber,
+      bankIfsc,
+    }: {
+      upiId: string;
+      qrCodeData: string;
+      bankAccountHolder?: string;
+      bankName?: string;
+      bankAccountNumber?: string;
+      bankIfsc?: string;
+    }) => {
       if (!actor) throw new Error("No actor");
-      return actor.setPaymentSettings(upiId, qrCodeData);
+      if (!token) throw new Error("Not authenticated");
+      return actor.setPaymentSettings(
+        token,
+        upiId,
+        qrCodeData,
+        bankAccountHolder ?? "",
+        bankName ?? "",
+        bankAccountNumber ?? "",
+        bankIfsc ?? "",
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["paymentSettings"] });
@@ -219,13 +221,14 @@ export function useSetPaymentSettings() {
 
 export function useGetAllWithdrawalRequests() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["adminWithdrawals"],
     queryFn: async () => {
-      if (!actor) return [];
-      return actor.getAllWithdrawalRequests();
+      if (!actor || !token) return [];
+      return actor.getAllWithdrawalRequests(token);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 10_000,
     refetchInterval: 30_000,
   });
@@ -233,11 +236,13 @@ export function useGetAllWithdrawalRequests() {
 
 export function useApproveWithdrawal() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (requestId: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.approveWithdrawal(requestId);
+      if (!token) throw new Error("Not authenticated");
+      return actor.approveWithdrawal(token, requestId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminWithdrawals"] });
@@ -248,11 +253,13 @@ export function useApproveWithdrawal() {
 
 export function useRejectWithdrawal() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (requestId: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.rejectWithdrawal(requestId);
+      if (!token) throw new Error("Not authenticated");
+      return actor.rejectWithdrawal(token, requestId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminWithdrawals"] });
@@ -263,23 +270,25 @@ export function useRejectWithdrawal() {
 
 export function useGetWithdrawalRequests() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["withdrawals"],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor || !token) return [];
       try {
-        return await actor.getWithdrawalRequests();
+        return await actor.getWithdrawalRequests(token);
       } catch {
         return [];
       }
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 10_000,
   });
 }
 
 export function usePlaceOrder() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -298,7 +307,9 @@ export function usePlaceOrder() {
       side: Side;
     }) => {
       if (!actor) throw new Error("No actor");
+      if (!token) throw new Error("Not authenticated");
       return actor.placeOrder(
+        token,
         symbol,
         quantity,
         price,
@@ -317,6 +328,7 @@ export function usePlaceOrder() {
 
 export function useClosePosition() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -324,7 +336,8 @@ export function useClosePosition() {
       quantity,
     }: { symbol: string; quantity: number }) => {
       if (!actor) throw new Error("No actor");
-      return actor.closePosition(symbol, quantity);
+      if (!token) throw new Error("Not authenticated");
+      return actor.closePosition(token, symbol, quantity);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio"] });
@@ -336,11 +349,13 @@ export function useClosePosition() {
 
 export function useAddToWatchlist() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (symbol: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.addToWatchlist(symbol);
+      if (!token) throw new Error("Not authenticated");
+      return actor.addToWatchlist(token, symbol);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["watchlist"] });
@@ -350,11 +365,13 @@ export function useAddToWatchlist() {
 
 export function useRemoveFromWatchlist() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (symbol: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.removeFromWatchlist(symbol);
+      if (!token) throw new Error("Not authenticated");
+      return actor.removeFromWatchlist(token, symbol);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["watchlist"] });
@@ -396,11 +413,13 @@ export function useCreateInstrument() {
 
 export function useRequestDeposit() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (amount: number) => {
       if (!actor) throw new Error("No actor");
-      return actor.requestDeposit(amount);
+      if (!token) throw new Error("Not authenticated");
+      return actor.requestDeposit(token, amount);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
@@ -410,6 +429,7 @@ export function useRequestDeposit() {
 
 export function useSubmitDepositUtr() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -417,7 +437,8 @@ export function useSubmitDepositUtr() {
       utrNumber,
     }: { requestId: string; utrNumber: string }) => {
       if (!actor) throw new Error("No actor");
-      return actor.submitDepositUtr(requestId, utrNumber);
+      if (!token) throw new Error("Not authenticated");
+      return actor.submitDepositUtr(token, requestId, utrNumber);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["deposits"] });
@@ -427,30 +448,32 @@ export function useSubmitDepositUtr() {
 
 export function useGetDepositRequests() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["deposits"],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor || !token) return [];
       try {
-        return await actor.getDepositRequests();
+        return await actor.getDepositRequests(token);
       } catch {
         return [];
       }
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 10_000,
   });
 }
 
 export function useGetAllDepositRequests() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["adminDeposits"],
     queryFn: async () => {
-      if (!actor) return [];
-      return actor.getAllDepositRequests();
+      if (!actor || !token) return [];
+      return actor.getAllDepositRequests(token);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 10_000,
     refetchInterval: 30_000,
   });
@@ -458,11 +481,13 @@ export function useGetAllDepositRequests() {
 
 export function useApproveDeposit() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (requestId: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.approveDeposit(requestId);
+      if (!token) throw new Error("Not authenticated");
+      return actor.approveDeposit(token, requestId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminDeposits"] });
@@ -473,11 +498,13 @@ export function useApproveDeposit() {
 
 export function useRejectDeposit() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (requestId: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.rejectDeposit(requestId);
+      if (!token) throw new Error("Not authenticated");
+      return actor.rejectDeposit(token, requestId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminDeposits"] });
@@ -487,24 +514,27 @@ export function useRejectDeposit() {
 
 export function useGetAllCreditCodes() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["creditCodes"],
     queryFn: async () => {
-      if (!actor) return [];
-      return actor.getAllCreditCodes();
+      if (!actor || !token) return [];
+      return actor.getAllCreditCodes(token);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 15_000,
   });
 }
 
 export function useCreateCreditCode() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ code, amount }: { code: string; amount: number }) => {
       if (!actor) throw new Error("No actor");
-      return actor.createCreditCode(code, amount);
+      if (!token) throw new Error("Not authenticated");
+      return actor.createCreditCode(token, code, amount);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["creditCodes"] });
@@ -514,11 +544,13 @@ export function useCreateCreditCode() {
 
 export function useDeleteCreditCode() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (code: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.deleteCreditCode(code);
+      if (!token) throw new Error("Not authenticated");
+      return actor.deleteCreditCode(token, code);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["creditCodes"] });
@@ -528,11 +560,13 @@ export function useDeleteCreditCode() {
 
 export function useRedeemCreditCode() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (code: string) => {
       if (!actor) throw new Error("No actor");
-      return actor.redeemCreditCode(code);
+      if (!token) throw new Error("Not authenticated");
+      return actor.redeemCreditCode(token, code);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio"] });

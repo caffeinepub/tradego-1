@@ -4,7 +4,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownToLine,
@@ -61,11 +60,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useSession } from "../contexts/SessionContext";
 import { useActor } from "../hooks/useActor";
 
 import {
   Category,
-  type CreditCode,
   CreditCodeStatus,
   DepositStatus,
   type Instrument,
@@ -112,39 +111,45 @@ type AdminTab =
 
 function useAdminStats() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["adminStats"],
     queryFn: async () => {
-      if (!actor) return null;
-      return actor.getAdminStats();
+      if (!actor || !token) return null;
+      return actor.getAdminStats(token);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     refetchInterval: 30_000,
   });
 }
 
 function useAdminUsers() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["adminUsers"],
     queryFn: async () => {
-      if (!actor) return [];
-      return actor.getAllUsers();
+      if (!actor || !token)
+        return [] as [string, import("../backend.d").User][];
+      return actor.getAllUsers(token) as Promise<
+        [string, import("../backend.d").User][]
+      >;
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 30_000,
   });
 }
 
 function useAdminOrders() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["adminOrders"],
     queryFn: async () => {
-      if (!actor) return [];
-      return actor.getAllOrders();
+      if (!actor || !token) return [];
+      return actor.getAllOrders(token);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
@@ -247,12 +252,6 @@ function useUpdateInstrumentPrice() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
-
-function truncatePrincipal(principal: { toString(): string }): string {
-  const str = principal.toString();
-  if (str.length <= 16) return str;
-  return `${str.slice(0, 8)}…${str.slice(-6)}`;
-}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-IN", {
@@ -895,6 +894,7 @@ function InstrumentsTab() {
 
 function useAdjustUserBalance() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -903,7 +903,8 @@ function useAdjustUserBalance() {
       isDeduct,
     }: { email: string; amount: number; isDeduct: boolean }) => {
       if (!actor) throw new Error("No actor");
-      return actor.adjustUserBalance(email, amount, isDeduct);
+      if (!token) throw new Error("Not authenticated");
+      return actor.adjustUserBalance(token, email, amount, isDeduct);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminUsers"] });
@@ -914,13 +915,15 @@ function useAdjustUserBalance() {
 
 function useAdminResetPassword() {
   const { actor } = useActor();
+  const { token } = useSession();
   return useMutation({
     mutationFn: async ({
       email,
       newPassword,
     }: { email: string; newPassword: string }) => {
       if (!actor) throw new Error("No actor");
-      return actor.adminResetPassword(email, newPassword);
+      if (!token) throw new Error("Not authenticated");
+      return actor.adminResetPassword(token, email, newPassword);
     },
   });
 }
@@ -1025,7 +1028,7 @@ function UsersTab() {
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
-                  User ID (Principal)
+                  Email / User ID
                 </TableHead>
                 <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
                   Name
@@ -1061,24 +1064,24 @@ function UsersTab() {
                   </TableCell>
                 </TableRow>
               ) : (
-                users.map(([principal, user], idx) => {
-                  const principalStr = principal.toString();
-                  const isExpanded = expandedId === principalStr;
+                users.map(([emailKey, user], idx) => {
+                  // emailKey is now the user's email string (not Principal)
+                  const isExpanded = expandedId === emailKey;
                   return (
                     <TableRow
-                      key={principalStr}
+                      key={emailKey}
                       className={idx % 2 === 0 ? "bg-muted/20" : ""}
                     >
-                      {/* Principal with expand/copy */}
+                      {/* Email ID with expand/copy */}
                       <TableCell className="py-3">
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() =>
-                              setExpandedId(isExpanded ? null : principalStr)
+                              setExpandedId(isExpanded ? null : emailKey)
                             }
                             className="text-muted-foreground hover:text-foreground"
-                            title={isExpanded ? "Collapse" : "Expand full ID"}
+                            title={isExpanded ? "Collapse" : "Expand"}
                           >
                             {isExpanded ? (
                               <ChevronUp className="w-3.5 h-3.5" />
@@ -1090,16 +1093,18 @@ function UsersTab() {
                             className={`font-mono text-xs ${isExpanded ? "text-foreground break-all" : "text-muted-foreground"}`}
                           >
                             {isExpanded
-                              ? principalStr
-                              : truncatePrincipal(principal)}
+                              ? emailKey
+                              : emailKey.length > 20
+                                ? `${emailKey.slice(0, 12)}…${emailKey.slice(-6)}`
+                                : emailKey}
                           </span>
                           <button
                             type="button"
-                            onClick={() => handleCopyPrincipal(principalStr)}
+                            onClick={() => handleCopyPrincipal(emailKey)}
                             className="ml-1 text-muted-foreground hover:text-foreground"
-                            title="Copy full principal"
+                            title="Copy email"
                           >
-                            {copiedId === principalStr ? (
+                            {copiedId === emailKey ? (
                               <Check className="w-3.5 h-3.5 text-gain" />
                             ) : (
                               <Copy className="w-3.5 h-3.5" />
@@ -1404,13 +1409,17 @@ function OrdersTab() {
 
 function useGetAllPositions() {
   const { actor, isFetching } = useActor();
+  const { token } = useSession();
   return useQuery({
     queryKey: ["adminPositions"],
     queryFn: async () => {
-      if (!actor) return [];
-      return actor.getAllPositions();
+      if (!actor || !token)
+        return [] as [string, import("../backend.d").PositionSummary[]][];
+      return actor.getAllPositions(token) as Promise<
+        [string, import("../backend.d").PositionSummary[]][]
+      >;
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && !!token,
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
@@ -1418,14 +1427,16 @@ function useGetAllPositions() {
 
 function useAdminClosePosition() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      targetPrincipal,
+      targetEmail,
       symbol,
-    }: { targetPrincipal: Principal; symbol: string }) => {
+    }: { targetEmail: string; symbol: string }) => {
       if (!actor) throw new Error("No actor");
-      return actor.adminClosePosition(targetPrincipal, symbol);
+      if (!token) throw new Error("Not authenticated");
+      return actor.adminClosePosition(token, targetEmail, symbol);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminPositions"] });
@@ -1436,22 +1447,25 @@ function useAdminClosePosition() {
 
 function useAdminEditPosition() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      targetPrincipal,
+      targetEmail,
       symbol,
       newQuantity,
       newAvgPrice,
     }: {
-      targetPrincipal: Principal;
+      targetEmail: string;
       symbol: string;
       newQuantity: number;
       newAvgPrice: number;
     }) => {
       if (!actor) throw new Error("No actor");
+      if (!token) throw new Error("Not authenticated");
       return actor.adminEditPosition(
-        targetPrincipal,
+        token,
+        targetEmail,
         symbol,
         newQuantity,
         newAvgPrice,
@@ -1466,7 +1480,7 @@ function useAdminEditPosition() {
 // ─── Positions Tab ────────────────────────────────────────────────────────
 
 interface EditPositionState {
-  principal: Principal;
+  email: string;
   symbol: string;
   quantity: string;
   avgPrice: string;
@@ -1478,15 +1492,15 @@ function AdminPositionsTab() {
   const editPosition = useAdminEditPosition();
   const [editState, setEditState] = useState<EditPositionState | null>(null);
 
-  // Flatten [Principal, PositionSummary[]][] into rows
-  const rows = allPositions.flatMap(([principal, positions]) =>
-    positions.map((pos) => ({ principal, pos })),
+  // Flatten [string(email), PositionSummary[]][] into rows
+  const rows = allPositions.flatMap(([email, positions]) =>
+    positions.map((pos) => ({ email, pos })),
   );
 
-  const handleClose = (principal: Principal, symbol: string) => {
+  const handleClose = (email: string, symbol: string) => {
     if (!window.confirm(`Close position ${symbol} for this user?`)) return;
     closePosition.mutate(
-      { targetPrincipal: principal, symbol },
+      { targetEmail: email, symbol },
       {
         onSuccess: () => toast.success(`Position ${symbol} closed`),
         onError: () => toast.error("Failed to close position"),
@@ -1504,7 +1518,7 @@ function AdminPositionsTab() {
     }
     editPosition.mutate(
       {
-        targetPrincipal: editState.principal,
+        targetEmail: editState.email,
         symbol: editState.symbol,
         newQuantity: qty,
         newAvgPrice: price,
@@ -1583,22 +1597,23 @@ function AdminPositionsTab() {
                   </TableCell>
                 </TableRow>
               ) : (
-                rows.map(({ principal, pos }, idx) => {
-                  const principalStr = principal.toString();
+                rows.map(({ email, pos }, idx) => {
                   const isEditing =
                     editState?.symbol === pos.symbol &&
-                    editState?.principal.toString() === principalStr;
+                    editState?.email === email;
 
                   return (
                     <TableRow
-                      key={`${principalStr}-${pos.symbol}`}
+                      key={`${email}-${pos.symbol}`}
                       className={idx % 2 === 0 ? "bg-muted/20" : ""}
                     >
                       <TableCell
                         className="font-mono text-xs text-muted-foreground"
-                        title={principalStr}
+                        title={email}
                       >
-                        {truncatePrincipal(principal)}
+                        {email.length > 16
+                          ? `${email.slice(0, 10)}…${email.slice(-5)}`
+                          : email}
                       </TableCell>
                       <TableCell className="font-mono text-sm font-semibold text-foreground">
                         {pos.symbol}
@@ -1702,7 +1717,7 @@ function AdminPositionsTab() {
                                 className="h-7 text-xs text-muted-foreground hover:text-foreground"
                                 onClick={() =>
                                   setEditState({
-                                    principal,
+                                    email,
                                     symbol: pos.symbol,
                                     quantity: pos.quantity.toString(),
                                     avgPrice: pos.avgBuyPrice.toString(),
@@ -1716,9 +1731,7 @@ function AdminPositionsTab() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 text-xs text-loss hover:bg-loss-muted"
-                                onClick={() =>
-                                  handleClose(principal, pos.symbol)
-                                }
+                                onClick={() => handleClose(email, pos.symbol)}
                                 disabled={closePosition.isPending}
                               >
                                 {closePosition.isPending ? (
@@ -1761,6 +1774,7 @@ function useGetAppSettings() {
 
 function useUpdateAppSettings() {
   const { actor } = useActor();
+  const { token } = useSession();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -1775,7 +1789,9 @@ function useUpdateAppSettings() {
       stockLossColor: string;
     }) => {
       if (!actor) throw new Error("No actor");
+      if (!token) throw new Error("Not authenticated");
       return actor.updateAppSettings(
+        token,
         termsText,
         privacyText,
         stockGainColor,
@@ -2148,9 +2164,35 @@ function WithdrawalsTab() {
                   >
                     <TableCell
                       className="font-mono text-xs text-muted-foreground"
-                      title={wr.user.toString()}
+                      title={
+                        (
+                          wr as {
+                            userEmail?: string;
+                            user?: { toString(): string };
+                          }
+                        ).userEmail ??
+                        (
+                          wr as { user?: { toString(): string } }
+                        ).user?.toString() ??
+                        ""
+                      }
                     >
-                      {truncatePrincipal(wr.user)}
+                      {(() => {
+                        const email =
+                          (
+                            wr as {
+                              userEmail?: string;
+                              user?: { toString(): string };
+                            }
+                          ).userEmail ??
+                          (
+                            wr as { user?: { toString(): string } }
+                          ).user?.toString() ??
+                          "";
+                        return email.length > 16
+                          ? `${email.slice(0, 10)}…${email.slice(-5)}`
+                          : email;
+                      })()}
                     </TableCell>
                     <TableCell className="font-mono text-sm font-semibold text-foreground">
                       {formatCurrency(wr.amount)}
@@ -2347,9 +2389,35 @@ function DepositsTab() {
                   >
                     <TableCell
                       className="font-mono text-xs text-muted-foreground"
-                      title={dr.user.toString()}
+                      title={
+                        (
+                          dr as {
+                            userEmail?: string;
+                            user?: { toString(): string };
+                          }
+                        ).userEmail ??
+                        (
+                          dr as { user?: { toString(): string } }
+                        ).user?.toString() ??
+                        ""
+                      }
                     >
-                      {truncatePrincipal(dr.user)}
+                      {(() => {
+                        const email =
+                          (
+                            dr as {
+                              userEmail?: string;
+                              user?: { toString(): string };
+                            }
+                          ).userEmail ??
+                          (
+                            dr as { user?: { toString(): string } }
+                          ).user?.toString() ??
+                          "";
+                        return email.length > 16
+                          ? `${email.slice(0, 10)}…${email.slice(-5)}`
+                          : email;
+                      })()}
                     </TableCell>
                     <TableCell className="font-mono text-sm font-semibold text-foreground">
                       {formatCurrency(dr.amount)}
@@ -2608,7 +2676,7 @@ function CreditCodesTab() {
                   </TableCell>
                 </TableRow>
               ) : (
-                codes.map((cc: CreditCode, idx: number) => (
+                codes.map((cc, idx) => (
                   <TableRow
                     key={cc.code}
                     className={idx % 2 === 0 ? "bg-muted/20" : ""}
@@ -2667,18 +2735,38 @@ function PaymentsTab() {
   const setPaymentSettings = useSetPaymentSettings();
   const [upiId, setUpiId] = useState("");
   const [qrCodeData, setQrCodeData] = useState("");
+  const [bankAccountHolder, setBankAccountHolder] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [bankIfsc, setBankIfsc] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // QR upload from gallery
+  const handleQrFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string;
+      setQrCodeData(result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!upiId.trim() || !qrCodeData.trim()) {
-      toast.error("Please fill both UPI ID and QR Code Data");
+    if (!upiId.trim()) {
+      toast.error("Please fill UPI ID");
       return;
     }
     try {
       await setPaymentSettings.mutateAsync({
         upiId: upiId.trim(),
         qrCodeData: qrCodeData.trim(),
+        bankAccountHolder: bankAccountHolder.trim(),
+        bankName: bankName.trim(),
+        bankAccountNumber: bankAccountNumber.trim(),
+        bankIfsc: bankIfsc.trim(),
       });
       toast.success("Payment settings saved successfully");
     } catch {
@@ -2696,7 +2784,9 @@ function PaymentsTab() {
     }
   };
 
-  const currentQrIsUrl = settings?.qrCodeData?.startsWith("http");
+  const currentQrIsImage =
+    settings?.qrCodeData?.startsWith("http") ||
+    settings?.qrCodeData?.startsWith("data:image");
 
   return (
     <div className="space-y-6 animate-fade-in-up max-w-2xl">
@@ -2714,50 +2804,141 @@ function PaymentsTab() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSave} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label
-                htmlFor="admin-upi-id"
-                className="text-xs text-muted-foreground uppercase tracking-wide"
-              >
-                UPI ID
-              </Label>
-              <Input
-                id="admin-upi-id"
-                value={upiId}
-                onChange={(e) => setUpiId(e.target.value)}
-                placeholder="yourname@upi or yourname@paytm"
-                className="bg-input border-border focus:border-primary font-mono"
-              />
-              <p className="text-xs text-muted-foreground">
-                This UPI ID will be shown to clients when they deposit.
+            {/* UPI Section */}
+            <div className="space-y-3 pb-4 border-b border-border">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                UPI Details
               </p>
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="admin-upi-id"
+                  className="text-xs text-muted-foreground uppercase tracking-wide"
+                >
+                  UPI ID
+                </Label>
+                <Input
+                  id="admin-upi-id"
+                  value={upiId}
+                  onChange={(e) => setUpiId(e.target.value)}
+                  placeholder="yourname@upi or yourname@paytm"
+                  className="bg-input border-border focus:border-primary font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This UPI ID will be shown to clients when they deposit.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                  QR Code (Upload from Gallery)
+                </Label>
+                <div className="flex gap-2">
+                  <label className="flex-1">
+                    <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-md bg-input cursor-pointer hover:border-primary transition-colors">
+                      <QrCode className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-muted-foreground truncate">
+                        {qrCodeData
+                          ? qrCodeData.startsWith("data:image")
+                            ? "✓ Image uploaded"
+                            : `${qrCodeData.slice(0, 30)}...`
+                          : "Click to upload QR image"}
+                      </span>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleQrFileUpload}
+                      className="sr-only"
+                    />
+                  </label>
+                  {qrCodeData && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 text-loss hover:bg-loss-muted shrink-0"
+                      onClick={() => setQrCodeData("")}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Or paste an image URL below
+                </p>
+                <Input
+                  value={qrCodeData.startsWith("data:image") ? "" : qrCodeData}
+                  onChange={(e) => setQrCodeData(e.target.value)}
+                  placeholder="https://example.com/qr.png"
+                  className="bg-input border-border focus:border-primary font-mono text-sm"
+                  disabled={qrCodeData.startsWith("data:image")}
+                />
+                {qrCodeData &&
+                  (qrCodeData.startsWith("data:image") ||
+                    qrCodeData.startsWith("http")) && (
+                    <div className="mt-2 bg-white rounded-lg p-2 inline-flex border border-border">
+                      <img
+                        src={qrCodeData}
+                        alt="QR Preview"
+                        className="w-28 h-28 object-contain"
+                      />
+                    </div>
+                  )}
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label
-                htmlFor="admin-qr-data"
-                className="text-xs text-muted-foreground uppercase tracking-wide"
-              >
-                QR Code Data
-              </Label>
-              <Textarea
-                id="admin-qr-data"
-                value={qrCodeData}
-                onChange={(e) => setQrCodeData(e.target.value)}
-                placeholder="upi://pay?pa=yourname@upi&pn=TradeGo1 or https://example.com/qr.png"
-                className="bg-input border-border focus:border-primary font-mono text-sm resize-none h-24"
-              />
-              <p className="text-xs text-muted-foreground">
-                Enter a UPI QR string (starts with{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-xs">
-                  upi://
-                </code>
-                ) or an image URL (starts with{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-xs">
-                  https://
-                </code>
-                ).
+
+            {/* Bank Transfer Section */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                Bank Transfer Details (optional)
               </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                    Account Holder Name
+                  </Label>
+                  <Input
+                    value={bankAccountHolder}
+                    onChange={(e) => setBankAccountHolder(e.target.value)}
+                    placeholder="Aman Mishra"
+                    className="bg-input border-border focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                    Bank Name
+                  </Label>
+                  <Input
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder="State Bank of India"
+                    className="bg-input border-border focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                    Account Number
+                  </Label>
+                  <Input
+                    value={bankAccountNumber}
+                    onChange={(e) => setBankAccountNumber(e.target.value)}
+                    placeholder="1234567890123"
+                    className="bg-input border-border focus:border-primary font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                    IFSC Code
+                  </Label>
+                  <Input
+                    value={bankIfsc}
+                    onChange={(e) => setBankIfsc(e.target.value.toUpperCase())}
+                    placeholder="SBIN0001234"
+                    className="bg-input border-border focus:border-primary font-mono"
+                  />
+                </div>
+              </div>
             </div>
+
             <Button
               type="submit"
               disabled={setPaymentSettings.isPending}
@@ -2824,7 +3005,7 @@ function PaymentsTab() {
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">
                   QR Code Preview
                 </p>
-                {currentQrIsUrl ? (
+                {currentQrIsImage ? (
                   <div className="bg-white rounded-xl p-4 inline-flex border border-border">
                     <img
                       src={settings.qrCodeData}
@@ -2832,17 +3013,45 @@ function PaymentsTab() {
                       className="w-40 h-40 object-contain"
                     />
                   </div>
-                ) : (
+                ) : settings.qrCodeData ? (
                   <div className="bg-muted/50 border border-border rounded-md p-3">
                     <p className="text-xs text-muted-foreground mb-1.5">
-                      QR String (UPI deep link)
+                      QR String
                     </p>
                     <pre className="font-mono text-xs text-foreground break-all whitespace-pre-wrap">
                       {settings.qrCodeData}
                     </pre>
                   </div>
-                )}
+                ) : null}
               </div>
+
+              {/* Bank Details */}
+              {(settings as { bankAccountHolder?: string })
+                .bankAccountHolder && (
+                <div className="bg-muted/50 border border-border rounded-md px-3 py-2.5 space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                    Bank Account
+                  </p>
+                  <p className="text-sm text-foreground font-medium">
+                    {
+                      (settings as { bankAccountHolder?: string })
+                        .bankAccountHolder
+                    }
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {(settings as { bankName?: string }).bankName}
+                  </p>
+                  <p className="font-mono text-sm text-foreground">
+                    {
+                      (settings as { bankAccountNumber?: string })
+                        .bankAccountNumber
+                    }
+                  </p>
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {(settings as { bankIfsc?: string }).bankIfsc}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-8">

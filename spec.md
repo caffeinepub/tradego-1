@@ -1,27 +1,39 @@
 # TradeGo.1
 
 ## Current State
-Full-stack trading app with admin panel. Admin can manage instruments, users, withdrawals, deposits, and payment settings (UPI/QR). Deposit flow: user enters amount → sees QR/UPI → submits UTR number → admin approves.
+The app uses email/password authentication but internally keys all user data by `caller` (Motoko Principal). Since the frontend uses an anonymous actor (no Internet Identity), all calls share the same anonymous principal (`2vxsx-fae`). This means:
+- Only ONE user can ever register (second registration is blocked by `usersMap.containsKey(caller)`)
+- Login fails after the first user since `emailToPrincipalMap` maps all emails to the same anonymous principal
+- All user data (positions, watchlists, orders, balances, withdrawals, deposits) collides
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Credit Code system**: Admin can create credit codes (code string + amount). When a client enters a valid credit code in the deposit dialog, their balance is credited instantly (no admin approval needed).
-- **Admin Credit Codes tab**: New tab in admin panel to create codes (code + amount), view all existing codes with their status (active/redeemed), and delete unused codes.
-- **Client deposit credit code field**: Optional "Have a credit code?" input in the deposit dialog (first step). When a valid code is entered and submitted, balance is credited immediately.
+- `usersByEmail` map keyed by email (Text) for all user lookups
+- `watchlistsByEmail`, `positionsByEmail`, `ordersByEmail` maps keyed by email
+- `withdrawalsByEmail`, `depositsByEmail` maps for user-scoped data
+- Token-to-email map (`sessionsEmailMap`) so all session lookups return email, not principal
+- `getSessionFullByEmail` that works with email-keyed data
 
 ### Modify
-- `main.mo`: Add CreditCode type, credit codes map, createCreditCode (admin), redeemCreditCode (user), getCreditCodes (admin), deleteCreditCode (admin).
-- `backend.d.ts`: Add CreditCode interface, CreditCodeStatus enum, and new function signatures.
-- `AdminPanel.tsx`: Add "Credit Codes" tab with form to create code+amount, table showing all codes (code, amount, status, redeemed by/when), delete button for active codes.
-- `Account.tsx`: Add optional credit code input on the deposit amount step. On submit, call redeemCreditCode; if successful, show success and close.
+- `registerUserWithPassword`: remove `usersMap` (Principal-keyed), store in `usersByEmail`; generate unique "user-{timestamp}" pseudo-principal per user for internal ID
+- `loginFull`: look up user by email, verify password, create token mapping to email
+- All user-scoped queries (portfolio, positions, orders, watchlist, deposits, withdrawals): look up user via session token → email → data maps
+- `placeOrder`, `executeBuy`, `executeSell`: use email-keyed positions
+- Admin functions: iterate email-keyed maps
+- `redeemCreditCode`, `requestDeposit`, `requestWithdrawal`: use token param to identify caller
+- All shared functions that use `caller` as user identity: switch to token-based lookup
 
 ### Remove
-- Nothing removed.
+- `usersMap` (Principal-keyed) - replaced by `usersByEmail`
+- `watchlistsMap` (Principal-keyed) - replaced by `watchlistsByEmail`
+- `positionsMap` (Principal-keyed) - replaced by `positionsByEmail`
+- `emailToPrincipalMap` - no longer needed
+- `sessionsMap` (token → Principal) - replaced by token → email map
 
 ## Implementation Plan
-1. Add CreditCode type and backend functions to `main.mo`
-2. Update `backend.d.ts` with new types and functions
-3. Add CreditCodesTab component to `AdminPanel.tsx` with create + list + delete
-4. Add credit code input + redemption flow to deposit dialog in `Account.tsx`
-5. Wire hooks for new backend functions
+1. Rewrite backend main.mo with email as primary key throughout
+2. Update all session/auth functions to use token → email → data pattern
+3. Update frontend to pass session token for user-scoped operations (placeOrder, deposit, withdraw, watchlist, positions)
+4. Update backend.d.ts to reflect new function signatures
+5. Update frontend hooks and pages to pass token where required

@@ -328,6 +328,11 @@ export function Registration({
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Signing In...
                         </>
+                      ) : !isActorReady ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading...
+                        </>
                       ) : (
                         "Sign In →"
                       )}
@@ -474,6 +479,11 @@ export function Registration({
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Creating Account...
                         </>
+                      ) : !isActorReady ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading...
+                        </>
                       ) : (
                         "Create Account →"
                       )}
@@ -548,25 +558,19 @@ export function Registration({
 
           <div className="space-y-3 py-1">
             <p className="text-sm text-muted-foreground leading-relaxed">
-              If you've forgotten your password, please contact support and
-              we'll help you regain access to your account.
+              If you've forgotten your password, please contact our support team
+              and we'll help you regain access to your account.
             </p>
             <div className="rounded-md bg-gain-muted/30 border border-gain/20 p-3">
               <p className="text-xs font-semibold text-foreground mb-1">
                 Contact Support
               </p>
               <p className="text-xs text-muted-foreground">
-                Email:{" "}
-                <a
-                  href="mailto:aman.mishra.04122000@gmail.com"
-                  className="text-gain hover:underline font-medium"
-                >
-                  aman.mishra.04122000@gmail.com
-                </a>
+                Reach out to our support team with your registered email address
+                and mobile number for verification.
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Include your registered email and mobile number for
-                verification.
+              <p className="text-xs text-muted-foreground mt-1.5 font-medium text-foreground">
+                The admin will reset your password from the admin panel.
               </p>
             </div>
           </div>

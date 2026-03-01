@@ -1,0 +1,1350 @@
+import Array "mo:core/Array";
+import Map "mo:core/Map";
+import Set "mo:core/Set";
+import Text "mo:core/Text";
+import Nat "mo:core/Nat";
+import Iter "mo:core/Iter";
+import Order "mo:core/Order";
+import Runtime "mo:core/Runtime";
+import Time "mo:core/Time";
+import Principal "mo:core/Principal";
+import Float "mo:core/Float";
+
+
+
+actor {
+  // TYPES
+  public type Category = { #stock; #crypto; #forex; #commodity };
+  public type OrderType = { #market; #limit; #stopLoss };
+  public type TradeType = { #intraday; #carryForward };
+  public type Side = { #buy; #sell };
+  public type OrderStatus = { #pending; #executed; #cancelled; #rejected };
+  public type WithdrawalStatus = { #pending; #approved; #rejected };
+  public type WithdrawalMethod = { #upi; #bank };
+
+  // NEW Deposit Types
+  public type DepositStatus = { #pending; #approved; #rejected };
+  public type DepositRequest = {
+    id : Text;
+    user : Principal;
+    amount : Float;
+    utrNumber : ?Text;
+    status : DepositStatus;
+    requestTime : Time.Time;
+  };
+
+  public type Instrument = {
+    symbol : Text;
+    name : Text;
+    category : Category;
+    currentPrice : Float;
+    previousClose : Float;
+    priceChangePercent : Float;
+  };
+
+  public type User = {
+    name : Text;
+    email : Text;
+    mobile : Text;
+    balance : Float;
+  };
+
+  public type Order = {
+    id : Text;
+    user : Principal;
+    symbol : Text;
+    quantity : Float;
+    price : Float;
+    orderType : OrderType;
+    tradeType : TradeType;
+    side : Side;
+    status : OrderStatus;
+    marginUsed : Float;
+    timestamp : Time.Time;
+  };
+
+  public type Position = {
+    symbol : Text;
+    quantity : Float;
+    avgBuyPrice : Float;
+    tradeType : TradeType;
+    marginUsed : Float;
+    unrealizedPnL : Float;
+    timestamp : Time.Time;
+  };
+
+  public type PortfolioSummary = {
+    totalInvested : Float;
+    currentValue : Float;
+    totalPnL : Float;
+    availableBalance : Float;
+    marginUsed : Float;
+    marginAvailable : Float;
+  };
+
+  public type PositionSummary = {
+    symbol : Text;
+    quantity : Float;
+    avgBuyPrice : Float;
+    tradeType : TradeType;
+    marginUsed : Float;
+    unrealizedPnL : Float;
+  };
+
+  // App Settings
+  public type AppSettings = {
+    termsText : Text;
+    privacyText : Text;
+    stockGainColor : Text;
+    stockLossColor : Text;
+  };
+
+  public type AdminStats = {
+    totalUsers : Nat;
+    totalInstruments : Nat;
+    totalOrders : Nat;
+  };
+
+  public type InstrumentUpdate = {
+    symbol : Text;
+    currentPrice : Float;
+    previousClose : Float;
+  };
+
+  public type WithdrawalRequest = {
+    id : Text;
+    user : Principal;
+    amount : Float;
+    status : WithdrawalStatus;
+    requestTime : Time.Time;
+    withdrawalMethod : WithdrawalMethod;
+    upiId : ?Text;
+    bankName : ?Text;
+    accountNumber : ?Text;
+    ifscCode : ?Text;
+  };
+
+  public type PaymentSettings = {
+    upiId : Text;
+    qrCodeData : Text;
+  };
+
+  // CREDIT CODE TYPES
+  public type CreditCodeStatus = { #active; #redeemed };
+  public type CreditCode = {
+    code : Text;
+    amount : Float;
+    status : CreditCodeStatus;
+    createdAt : Time.Time;
+    redeemedBy : ?Principal;
+    redeemedAt : ?Time.Time;
+  };
+
+  // SORTING MODULES
+  module Instrument {
+    public func compare(instrument1 : Instrument, instrument2 : Instrument) : Order.Order {
+      Text.compare(instrument1.symbol, instrument2.symbol);
+    };
+  };
+
+  module Position {
+    public func compare(position1 : Position, position2 : Position) : Order.Order {
+      switch (position1.timestamp < position2.timestamp, Text.compare(position1.symbol, position2.symbol)) {
+        case (true, _) { #less };
+        case (false, #less) { #less };
+        case (false, #equal) { #equal };
+        case (false, #greater) { #greater };
+      };
+    };
+  };
+
+  module PositionSummary {
+    public func compare(summary1 : PositionSummary, summary2 : PositionSummary) : Order.Order {
+      Text.compare(summary1.symbol, summary2.symbol);
+    };
+  };
+
+  // ADMIN EMAIL AUTH
+  let adminEmail = "aman.mishra.04122000@gmail.com";
+
+  // Fallback for legacy admin principal
+  let defaultAdminPrincipal = Principal.fromText("2vxsx-fae");
+
+  // INSTRUMENT MAP
+  let instrumentsMap = Map.empty<Text, Instrument>();
+
+  // USERS MAP
+  let usersMap = Map.empty<Principal, User>();
+
+  // WATCHLISTS MAP
+  let watchlistsMap = Map.empty<Principal, Set.Set<Text>>();
+
+  // ORDERS MAP
+  let ordersMap = Map.empty<Text, Order>();
+
+  // POSITIONS MAP
+  let positionsMap = Map.empty<Principal, Map.Map<Text, Position>>();
+
+  // WITHDRAWAL REQUESTS MAP
+  let withdrawalRequestsMap = Map.empty<Text, WithdrawalRequest>();
+
+  // DEPOSIT REQUESTS MAP (NEW)
+  let depositRequestsMap = Map.empty<Text, DepositRequest>();
+
+  // PAYMENT SETTINGS (admin managed)
+  var paymentSettings : ?PaymentSettings = null;
+
+  // AUTH MAPS
+  let passwordsMap = Map.empty<Text, Text>(); // email -> plain text password
+  let sessionsMap = Map.empty<Text, Principal>(); // token -> principal
+  let emailToPrincipalMap = Map.empty<Text, Principal>(); // email -> principal
+
+  // App Settings (admin managed)
+  var appSettings : ?AppSettings = null;
+
+  // CREDIT CODES MAP
+  let creditCodesMap = Map.empty<Text, CreditCode>();
+
+  // HELPER FUNCTIONS
+
+  // ADMIN AUTH (by principal or admin email)
+  public query ({ caller }) func isAdminUser(p : Principal) : async Bool {
+    if (p == defaultAdminPrincipal) { return true };
+    switch (usersMap.get(p)) {
+      case (null) { false };
+      case (?user) { user.email == adminEmail };
+    };
+  };
+
+  func getCurrentPrice(symbol : Text) : Float {
+    switch (instrumentsMap.get(symbol)) {
+      case (null) { Runtime.trap("Instrument not found") };
+      case (?instrument) { instrument.currentPrice };
+    };
+  };
+
+  func calculateMargin(price : Float, quantity : Float, leverage : Float) : Float {
+    (price * quantity) / leverage;
+  };
+
+  func getOrderById(orderId : Text) : Order {
+    switch (ordersMap.get(orderId)) {
+      case (null) { Runtime.trap("Order not found") };
+      case (?order) { order };
+    };
+  };
+
+  // CREDIT CODE FUNCTIONS
+
+  public shared ({ caller }) func createCreditCode(code : Text, amount : Float) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can create credit codes");
+    };
+
+    if (code.trim(#char ' ').size() == 0) {
+      Runtime.trap("Code cannot be empty");
+    };
+
+    if (amount <= 0) {
+      Runtime.trap("Amount must be greater than 0");
+    };
+
+    if (creditCodesMap.containsKey(code)) {
+      Runtime.trap("Code already exists");
+    };
+
+    let creditCode : CreditCode = {
+      code;
+      amount;
+      status = #active;
+      createdAt = Time.now();
+      redeemedBy = null;
+      redeemedAt = null;
+    };
+
+    creditCodesMap.add(code, creditCode);
+  };
+
+  public shared ({ caller }) func getAllCreditCodes() : async [CreditCode] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    creditCodesMap.values().toArray();
+  };
+
+  public shared ({ caller }) func deleteCreditCode(code : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can delete credit codes");
+    };
+
+    switch (creditCodesMap.get(code)) {
+      case (null) { Runtime.trap("Code not found") };
+      case (?creditCode) {
+        if (creditCode.status != #active) {
+          Runtime.trap("Only active codes can be deleted");
+        };
+        creditCodesMap.remove(code);
+      };
+    };
+  };
+
+  public shared ({ caller }) func redeemCreditCode(code : Text) : async () {
+    switch (creditCodesMap.get(code)) {
+      case (null) { Runtime.trap("Code not found") };
+      case (?creditCode) {
+        if (creditCode.status != #active) {
+          Runtime.trap("Code has already been redeemed");
+        };
+
+        if (not usersMap.containsKey(caller)) {
+          Runtime.trap("User does not exist");
+        };
+
+        let updatedCreditCode : CreditCode = {
+          code = creditCode.code;
+          amount = creditCode.amount;
+          status = #redeemed;
+          createdAt = creditCode.createdAt;
+          redeemedBy = ?caller;
+          redeemedAt = ?Time.now();
+        };
+        creditCodesMap.add(code, updatedCreditCode);
+
+        switch (usersMap.get(caller)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance + creditCode.amount;
+            };
+            usersMap.add(caller, updatedUser);
+          };
+        };
+      };
+    };
+  };
+
+  // API FUNCTIONS (SHARED/QUERY)
+
+  // PAYMENT SETTINGS
+  public shared ({ caller }) func setPaymentSettings(upiId : Text, qrCodeData : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can update payment settings");
+    };
+    paymentSettings := ?{ upiId; qrCodeData };
+  };
+
+  public query ({ caller }) func getPaymentSettings() : async ?PaymentSettings {
+    paymentSettings;
+  };
+
+  public shared ({ caller }) func createInstrument(
+    symbol : Text,
+    name : Text,
+    category : Category,
+    currentPrice : Float,
+    previousClose : Float
+  ) : async () {
+    if (not (await isAdminUser(caller))) { Runtime.trap("Only admin can create instruments") };
+    if (symbol.trim(#char ' ').size() == 0 or name.trim(#char ' ').size() == 0) {
+      Runtime.trap("Symbol and name must not be empty");
+    };
+
+    let priceChangePercent = ((currentPrice - previousClose) / previousClose) * 100;
+    let instrument : Instrument = {
+      symbol;
+      name;
+      category;
+      currentPrice;
+      previousClose;
+      priceChangePercent;
+    };
+    instrumentsMap.add(symbol, instrument);
+  };
+
+  public query ({ caller }) func getAllInstruments() : async [Instrument] {
+    instrumentsMap.values().toArray().sort();
+  };
+
+  public query ({ caller }) func getInstrumentsByCategory(category : Category) : async [Instrument] {
+    let filtered = instrumentsMap.values().filter(
+      func(instrument) { instrument.category == category }
+    );
+    filtered.toArray();
+  };
+
+  // NEW registerUserWithPassword (called by old registerUser with empty password)
+  public shared ({ caller }) func registerUserWithPassword(name : Text, email : Text, mobile : Text, password : Text) : async () {
+    if (usersMap.containsKey(caller)) { Runtime.trap("User already registered") };
+    if (name.trim(#char ' ').size() == 0 or email.trim(#char ' ').size() == 0 or mobile.trim(#char ' ').size() == 0) {
+      Runtime.trap("Name, email, and mobile cannot be empty");
+    };
+
+    let user : User = {
+      name;
+      email;
+      mobile;
+      balance = 0.0;
+    };
+    usersMap.add(caller, user);
+    watchlistsMap.add(caller, Set.empty<Text>());
+    positionsMap.add(caller, Map.empty<Text, Position>());
+    // Handle password for new user
+    emailToPrincipalMap.add(email, caller);
+    passwordsMap.add(email, password);
+  };
+
+  // Legacy support for old frontend (calls new registerUserWithPassword with empty password)
+  public shared ({ caller }) func registerUser(name : Text, email : Text, mobile : Text) : async () {
+    await registerUserWithPassword(name, email, mobile, "");
+  };
+
+  public query ({ caller }) func getUserProfile() : async User {
+    switch (usersMap.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) { user };
+    };
+  };
+
+  public query ({ caller }) func getAvailableBalance() : async Float {
+    switch (usersMap.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) { user.balance };
+    };
+  };
+
+  public shared ({ caller }) func addToWatchlist(symbol : Text) : async () {
+    switch (watchlistsMap.get(caller)) {
+      case (null) { Runtime.trap("Watchlist not found") };
+      case (?watchlist) {
+        if (watchlist.contains(symbol)) { Runtime.trap("Symbol already in watchlist") };
+        watchlist.add(symbol);
+      };
+    };
+  };
+
+  public shared ({ caller }) func removeFromWatchlist(symbol : Text) : async () {
+    switch (watchlistsMap.get(caller)) {
+      case (null) { Runtime.trap("Watchlist not found") };
+      case (?watchlist) {
+        watchlist.remove(symbol);
+      };
+    };
+  };
+
+  public query ({ caller }) func getWatchlist() : async [Text] {
+    switch (watchlistsMap.get(caller)) {
+      case (null) { Runtime.trap("Watchlist not found") };
+      case (?watchlist) { watchlist.toArray() };
+    };
+  };
+
+  func executeBuy(caller : Principal, symbol : Text, quantity : Float, tradeType : TradeType) : Float {
+    let currentPrice = getCurrentPrice(symbol);
+
+    // Old margin calculation logic using multiple of currentPrice and quantity
+    let margin = switch (tradeType) {
+      case (#intraday) { calculateMargin(currentPrice, quantity, 500) };
+      case (#carryForward) { calculateMargin(currentPrice, quantity, 100) };
+    };
+
+    let existingPosition = switch (positionsMap.get(caller)) {
+      case (null) {
+        let newPositions = Map.empty<Text, Position>();
+        positionsMap.add(caller, newPositions);
+        null;
+      };
+      case (?userPositions) { userPositions.get(symbol) };
+    };
+
+    let newPosition = switch (existingPosition) {
+      case (null) {
+        {
+          symbol;
+          quantity;
+          avgBuyPrice = currentPrice;
+          tradeType;
+          marginUsed = margin;
+          unrealizedPnL = 0.0;
+          timestamp = Time.now();
+        };
+      };
+      case (?pos) {
+        let totalQuantity = pos.quantity + quantity;
+        let newAvgPrice = ((pos.quantity * pos.avgBuyPrice) + (quantity * currentPrice)) / totalQuantity;
+
+        {
+          symbol;
+          quantity = totalQuantity;
+          avgBuyPrice = newAvgPrice;
+          tradeType;
+          marginUsed = pos.marginUsed + margin;
+          unrealizedPnL = pos.unrealizedPnL;
+          timestamp = Time.now();
+        };
+      };
+    };
+
+    switch (positionsMap.get(caller)) {
+      case (null) {
+        let newPositions = Map.empty<Text, Position>();
+        newPositions.add(symbol, newPosition);
+        positionsMap.add(caller, newPositions);
+      };
+      case (?userPositions) {
+        userPositions.add(symbol, newPosition);
+      };
+    };
+
+    margin;
+  };
+
+  func executeSell(
+    caller : Principal,
+    symbol : Text,
+    quantity : Float,
+    tradeType : TradeType
+  ) : (Float, Float, Float) {
+    let currentPrice = getCurrentPrice(symbol);
+
+    switch (positionsMap.get(caller)) {
+      case (null) { Runtime.trap("No positions found for user") };
+      case (?userPositions) {
+        switch (userPositions.get(symbol)) {
+          case (null) { Runtime.trap("No position found for symbol: " # symbol) };
+          case (?pos) {
+            if (quantity > pos.quantity) {
+              Runtime.trap("Insufficient quantity to sell: " # quantity.toText());
+            };
+
+            let oldMargin = pos.marginUsed;
+            let oldPosition = {
+              symbol = pos.symbol;
+              quantity = pos.quantity;
+              avgBuyPrice = pos.avgBuyPrice;
+              tradeType = pos.tradeType;
+              marginUsed = pos.marginUsed;
+              unrealizedPnL = pos.unrealizedPnL;
+              timestamp = pos.timestamp;
+            };
+
+            let quantitySold = if (quantity > pos.quantity) { pos.quantity } else {
+              quantity;
+            };
+            let avgBuyPrice = pos.avgBuyPrice;
+            let profit = (currentPrice - avgBuyPrice) * quantitySold;
+            let margin = switch (tradeType) {
+              case (#intraday) { calculateMargin(currentPrice, quantitySold, 500) };
+              case (#carryForward) { calculateMargin(currentPrice, quantitySold, 100) };
+            };
+
+            let marginToRelease = oldMargin * (quantitySold / pos.quantity);
+
+            let remainingPosition = {
+              symbol = oldPosition.symbol;
+              quantity = oldPosition.quantity - quantitySold;
+              avgBuyPrice = oldPosition.avgBuyPrice;
+              tradeType = oldPosition.tradeType;
+              marginUsed = oldPosition.marginUsed - marginToRelease;
+              unrealizedPnL = oldPosition.unrealizedPnL;
+              timestamp = oldPosition.timestamp;
+            };
+
+            if (remainingPosition.quantity > 0) {
+              userPositions.add(symbol, remainingPosition);
+            } else {
+              userPositions.remove(symbol);
+            };
+
+            (profit, margin, marginToRelease);
+          };
+        };
+      };
+    };
+  };
+
+  public shared ({ caller }) func placeOrder(
+    symbol : Text,
+    quantity : Float,
+    price : Float,
+    orderType : OrderType,
+    tradeType : TradeType,
+    side : Side
+  ) : async Text {
+    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
+
+    if (orderType == #limit or orderType == #stopLoss) {
+      let orderId = symbol.concat(caller.toText());
+      let limitOrder : Order = {
+        id = orderId;
+        user = caller;
+        symbol;
+        quantity;
+        price;
+        orderType;
+        tradeType;
+        side;
+        status = #pending;
+        marginUsed = 0;
+        timestamp = Time.now();
+      };
+      ordersMap.add(orderId, limitOrder);
+      return orderId;
+    };
+
+    var margin = 0.0;
+    var profit = 0.0;
+    var marginToRelease = 0.0;
+
+    switch (side) {
+      case (#buy) {
+        margin := executeBuy(caller, symbol, quantity, tradeType);
+        switch (usersMap.get(caller)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance - margin;
+            };
+            usersMap.add(caller, updatedUser);
+          };
+        };
+      };
+      case (#sell) {
+        let (p, m, mtr) = executeSell(caller, symbol, quantity, tradeType);
+        profit := p;
+        margin := m;
+        marginToRelease := mtr;
+        switch (usersMap.get(caller)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance + marginToRelease + profit;
+            };
+            usersMap.add(caller, updatedUser);
+          };
+        };
+      };
+    };
+
+    let orderId = symbol.concat(caller.toText().concat(Time.now().toText()));
+    let order : Order = {
+      id = orderId;
+      user = caller;
+      symbol;
+      quantity;
+      price = getCurrentPrice(symbol);
+      orderType;
+      tradeType;
+      side;
+      status = #executed;
+      marginUsed = margin;
+      timestamp = Time.now();
+    };
+    ordersMap.add(orderId, order);
+
+    orderId;
+  };
+
+  public shared ({ caller }) func closePosition(symbol : Text, quantity : Float) : async () {
+    switch (positionsMap.get(caller)) {
+      case (null) { Runtime.trap("No positions found for user") };
+      case (?userPositions) {
+        switch (userPositions.get(symbol)) {
+          case (null) { Runtime.trap("No position found for symbol") };
+          case (?pos) {
+            let newQuantity = pos.quantity - quantity;
+            if (newQuantity > 0) {
+              let updatedPosition = {
+                symbol = pos.symbol;
+                quantity = newQuantity;
+                avgBuyPrice = pos.avgBuyPrice;
+                tradeType = pos.tradeType;
+                marginUsed = pos.marginUsed * (newQuantity / pos.quantity);
+                unrealizedPnL = pos.unrealizedPnL;
+                timestamp = pos.timestamp;
+              };
+              userPositions.add(symbol, updatedPosition);
+            } else {
+              userPositions.remove(symbol);
+            };
+          };
+        };
+      };
+    };
+  };
+
+  public query ({ caller }) func getPortfolioSummary() : async PortfolioSummary {
+    switch (usersMap.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        var totalInvested = 0.0;
+        var currentValue = 0.0;
+        var marginUsed = 0.0;
+
+        switch (positionsMap.get(caller)) {
+          case (null) {};
+          case (?userPositions) {
+            for ((symbol, pos) in userPositions.entries()) {
+              totalInvested += pos.quantity * pos.avgBuyPrice;
+              currentValue += pos.quantity * getCurrentPrice(symbol);
+              marginUsed += pos.marginUsed;
+            };
+          };
+        };
+
+        let totalPnL = currentValue - totalInvested;
+        let marginAvailable = user.balance - marginUsed;
+
+        {
+          totalInvested;
+          currentValue;
+          totalPnL;
+          availableBalance = user.balance;
+          marginUsed;
+          marginAvailable;
+        };
+      };
+    };
+  };
+
+  public query ({ caller }) func getOpenPositions() : async [PositionSummary] {
+    switch (positionsMap.get(caller)) {
+      case (null) { [] };
+      case (?userPositions) {
+        let positions = userPositions.values().toArray();
+        let summaries = positions.map(
+          func(pos) {
+            let currentPrice = getCurrentPrice(pos.symbol);
+            {
+              symbol = pos.symbol;
+              quantity = pos.quantity;
+              avgBuyPrice = pos.avgBuyPrice;
+              tradeType = pos.tradeType;
+              marginUsed = pos.marginUsed;
+              unrealizedPnL = (currentPrice - pos.avgBuyPrice) * pos.quantity;
+            };
+          }
+        );
+        summaries.sort();
+      };
+    };
+  };
+
+  public query ({ caller }) func getOrders() : async [Order] {
+    let filtered = ordersMap.values().filter(
+      func(order) { order.user == caller }
+    );
+    filtered.toArray();
+  };
+
+  public shared ({ caller }) func authenticate(userPrincipal : Principal) : async Bool {
+    usersMap.containsKey(userPrincipal);
+  };
+
+  public shared ({ caller }) func authenticateAdmin(userPrincipal : Principal) : async Bool {
+    await isAdminUser(userPrincipal);
+  };
+
+  public shared ({ caller }) func getAdminStats() : async AdminStats {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    {
+      totalUsers = usersMap.size();
+      totalInstruments = instrumentsMap.size();
+      totalOrders = ordersMap.size();
+    };
+  };
+
+  public shared ({ caller }) func getAllUsers() : async [(Principal, User)] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    usersMap.toArray();
+  };
+
+  public shared ({ caller }) func getAllOrders() : async [Order] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    ordersMap.values().toArray();
+  };
+
+  public shared ({ caller }) func updateInstrumentPrice(update : InstrumentUpdate) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    let instrument = switch (instrumentsMap.get(update.symbol)) {
+      case (null) { Runtime.trap("Instrument not found") };
+      case (?i) { i };
+    };
+    let updatedInstrument = {
+      symbol = instrument.symbol;
+      name = instrument.name;
+      category = instrument.category;
+      currentPrice = update.currentPrice;
+      previousClose = update.previousClose;
+      priceChangePercent = ((update.currentPrice - update.previousClose) / update.previousClose) * 100;
+    };
+    instrumentsMap.add(update.symbol, updatedInstrument);
+  };
+
+  public shared ({ caller }) func deleteInstrument(symbol : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    if (not instrumentsMap.containsKey(symbol)) {
+      Runtime.trap("Instrument does not exist");
+    };
+    instrumentsMap.remove(symbol);
+  };
+
+  // LEGACY DEPOSIT (for backwards compatibility)
+  public shared ({ caller }) func deposit(amount : Float) : async () {
+    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
+    if (amount < 500.0) { Runtime.trap("Minimum deposit is 500") };
+    switch (usersMap.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        let updatedUser : User = {
+          name = user.name;
+          email = user.email;
+          mobile = user.mobile;
+          balance = user.balance + amount;
+        };
+        usersMap.add(caller, updatedUser);
+      };
+    };
+  };
+
+  // NEW DEPOSIT REQUEST FLOW
+  public shared ({ caller }) func requestDeposit(amount : Float) : async Text {
+    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
+    if (amount < 500.0) { Runtime.trap("Minimum deposit is 500") };
+
+    let requestId = "dr-" # Time.now().toText();
+    let depositRequest : DepositRequest = {
+      id = requestId;
+      user = caller;
+      amount;
+      utrNumber = null;
+      status = #pending;
+      requestTime = Time.now();
+    };
+
+    depositRequestsMap.add(requestId, depositRequest);
+    requestId;
+  };
+
+  public shared ({ caller }) func submitDepositUtr(requestId : Text, utrNumber : Text) : async () {
+    switch (depositRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Deposit request not found") };
+      case (?request) {
+        if (request.user != caller) {
+          Runtime.trap("Caller does not own this deposit request");
+        };
+        if (request.status != #pending) {
+          Runtime.trap("Can only submit UTR for pending requests");
+        };
+
+        let updatedRequest : DepositRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          utrNumber = ?utrNumber;
+          status = #pending;
+          requestTime = request.requestTime;
+        };
+        depositRequestsMap.add(requestId, updatedRequest);
+      };
+    };
+  };
+
+  public query ({ caller }) func getDepositRequests() : async [DepositRequest] {
+    let filtered = depositRequestsMap.values().filter(
+      func(request) { request.user == caller }
+    );
+    filtered.toArray();
+  };
+
+  public shared ({ caller }) func getAllDepositRequests() : async [DepositRequest] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    depositRequestsMap.values().toArray();
+  };
+
+  public shared ({ caller }) func approveDeposit(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (depositRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Deposit request not found") };
+      case (?request) {
+        if (request.status != #pending) {
+          Runtime.trap("Only pending requests can be approved");
+        };
+
+        let approvedRequest : DepositRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          utrNumber = request.utrNumber;
+          status = #approved;
+          requestTime = request.requestTime;
+        };
+        depositRequestsMap.add(requestId, approvedRequest);
+
+        switch (usersMap.get(request.user)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance + request.amount;
+            };
+            usersMap.add(request.user, updatedUser);
+          };
+        };
+      };
+    };
+  };
+
+  public shared ({ caller }) func rejectDeposit(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (depositRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Deposit request not found") };
+      case (?request) {
+        if (request.status != #pending) {
+          Runtime.trap("Only pending requests can be rejected");
+        };
+
+        let rejectedRequest : DepositRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          utrNumber = request.utrNumber;
+          status = #rejected;
+          requestTime = request.requestTime;
+        };
+        depositRequestsMap.add(requestId, rejectedRequest);
+      };
+    };
+  };
+
+  public shared ({ caller }) func requestWithdrawal(
+    amount : Float,
+    withdrawalMethod : WithdrawalMethod,
+    upiId : ?Text,
+    bankName : ?Text,
+    accountNumber : ?Text,
+    ifscCode : ?Text
+  ) : async Text {
+    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
+    if (amount < 500.0) { Runtime.trap("Minimum withdrawal is 500") };
+    switch (usersMap.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        if (user.balance < amount) { Runtime.trap("Insufficient balance") };
+        let requestId = "wr-" # Time.now().toText();
+        let withdrawalRequest : WithdrawalRequest = {
+          id = requestId;
+          user = caller;
+          amount;
+          status = #pending;
+          requestTime = Time.now();
+          withdrawalMethod;
+          upiId;
+          bankName;
+          accountNumber;
+          ifscCode;
+        };
+        withdrawalRequestsMap.add(requestId, withdrawalRequest);
+        let updatedUser : User = {
+          name = user.name;
+          email = user.email;
+          mobile = user.mobile;
+          balance = user.balance - amount;
+        };
+        usersMap.add(caller, updatedUser);
+        requestId;
+      };
+    };
+  };
+
+  public query ({ caller }) func getWithdrawalRequests() : async [WithdrawalRequest] {
+    let filtered = withdrawalRequestsMap.values().filter(
+      func(request) { request.user == caller }
+    );
+    filtered.toArray();
+  };
+
+  public shared ({ caller }) func getAllWithdrawalRequests() : async [WithdrawalRequest] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    withdrawalRequestsMap.values().toArray();
+  };
+
+  public shared ({ caller }) func approveWithdrawal(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (withdrawalRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Withdrawal request not found") };
+      case (?request) {
+        if (request.status != #pending) { Runtime.trap("Only pending requests can be approved") };
+        let approvedRequest : WithdrawalRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          status = #approved;
+          requestTime = request.requestTime;
+          withdrawalMethod = request.withdrawalMethod;
+          upiId = request.upiId;
+          bankName = request.bankName;
+          accountNumber = request.accountNumber;
+          ifscCode = request.ifscCode;
+        };
+        withdrawalRequestsMap.add(requestId, approvedRequest);
+      };
+    };
+  };
+
+  public shared ({ caller }) func rejectWithdrawal(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (withdrawalRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Withdrawal request not found") };
+      case (?request) {
+        if (request.status != #pending) { Runtime.trap("Only pending requests can be rejected") };
+        let rejectedRequest : WithdrawalRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          status = #rejected;
+          requestTime = request.requestTime;
+          withdrawalMethod = request.withdrawalMethod;
+          upiId = request.upiId;
+          bankName = request.bankName;
+          accountNumber = request.accountNumber;
+          ifscCode = request.ifscCode;
+        };
+        withdrawalRequestsMap.add(requestId, rejectedRequest);
+        switch (usersMap.get(request.user)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance + request.amount;
+            };
+            usersMap.add(request.user, updatedUser);
+          };
+        };
+      };
+    };
+  };
+
+  // NEW AUTH METHODS
+
+  // loginWithPassword : Accepts email/password, returns session token
+  public shared ({ caller }) func loginWithPassword(email : Text, password : Text) : async Text {
+    let principal = switch (emailToPrincipalMap.get(email)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?p) { p };
+    };
+
+    switch (passwordsMap.get(email)) {
+      case (null) { Runtime.trap("Invalid password") };
+      case (?storedPassword) {
+        if (storedPassword != password) { Runtime.trap("Invalid password") };
+      };
+    };
+
+    let token = "sess-" # email # "-" # Time.now().toText();
+    sessionsMap.add(token, principal);
+    token;
+  };
+
+  // getProfileByToken : Returns user for a session token
+  public query ({ caller }) func getProfileByToken(token : Text) : async User {
+    let principal = switch (sessionsMap.get(token)) {
+      case (null) { Runtime.trap("Invalid session") };
+      case (?p) { p };
+    };
+    switch (usersMap.get(principal)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) { user };
+    };
+  };
+
+  // logoutByToken : Invalidates a session token
+  public shared ({ caller }) func logoutByToken(token : Text) : async () {
+    switch (sessionsMap.get(token)) {
+      case (null) { Runtime.trap("Invalid session") };
+      case (?_) {
+        sessionsMap.remove(token);
+      };
+    };
+  };
+
+  // NEW isAdminByToken : Query function for admin check by token
+  public query ({ caller }) func isAdminByToken(token : Text) : async Bool {
+    switch (sessionsMap.get(token)) {
+      case (null) { false };
+      case (?principal) {
+        if (principal == defaultAdminPrincipal) { return true };
+        switch (usersMap.get(principal)) {
+          case (null) { false };
+          case (?user) { user.email == adminEmail };
+        };
+      };
+    };
+  };
+
+  // getUserByToken : Returns principal and user for a token (for order placement)
+  public query ({ caller }) func getUserByToken(token : Text) : async (Principal, User) {
+    let principal = switch (sessionsMap.get(token)) {
+      case (null) { Runtime.trap("Invalid session") };
+      case (?p) { p };
+    };
+
+    let user = switch (usersMap.get(principal)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) { user };
+    };
+    (principal, user);
+  };
+
+  // NEW FULL SESSION FUNCTIONS
+
+  // loginFull : Shared function that returns token, user, and isAdmin status in one call
+  public shared ({ caller }) func loginFull(email : Text, password : Text) : async (Text, User, Bool) {
+    let principal = switch (emailToPrincipalMap.get(email)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?p) { p };
+    };
+
+    switch (passwordsMap.get(email)) {
+      case (null) { Runtime.trap("Invalid password") };
+      case (?storedPassword) {
+        if (storedPassword != password) { Runtime.trap("Invalid password") };
+      };
+    };
+
+    let token = "sess-" # email # "-" # Time.now().toText();
+    sessionsMap.add(token, principal);
+
+    let (user, isAdmin) = switch (usersMap.get(principal)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        if (principal == defaultAdminPrincipal) { (user, true) } else {
+          (user, user.email == adminEmail);
+        };
+      };
+    };
+
+    (token, user, isAdmin);
+  };
+
+  // getSessionFull : Query function that returns user and isAdmin by token
+  public query ({ caller }) func getSessionFull(token : Text) : async ?(User, Bool) {
+    switch (sessionsMap.get(token)) {
+      case (null) { null };
+      case (?principal) {
+        switch (usersMap.get(principal)) {
+          case (null) { null };
+          case (?user) {
+            let isAdmin = if (principal == defaultAdminPrincipal) { true } else {
+              user.email == adminEmail;
+            };
+            ?(user, isAdmin);
+          };
+        };
+      };
+    };
+  };
+
+  // ADMIN FUNCTIONS
+
+  // ADJUST USER BALANCE
+  public shared ({ caller }) func adjustUserBalance(targetEmail : Text, amount : Float, isDeduct : Bool) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can adjust user balance");
+    };
+
+    let targetPrincipal = switch (emailToPrincipalMap.get(targetEmail)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?p) { p };
+    };
+
+    if (not usersMap.containsKey(targetPrincipal)) {
+      Runtime.trap("User does not exist");
+    };
+
+    let targetUser = switch (usersMap.get(targetPrincipal)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?u) { u };
+    };
+
+    let newBalance = if (isDeduct) {
+      if (targetUser.balance < amount) {
+        Runtime.trap("Insufficient balance for deduction");
+      };
+      targetUser.balance - amount;
+    } else { targetUser.balance + amount };
+
+    let updatedUser = {
+      name = targetUser.name;
+      email = targetUser.email;
+      mobile = targetUser.mobile;
+      balance = newBalance;
+    };
+
+    usersMap.add(targetPrincipal, updatedUser);
+  };
+
+  // ADMIN RESET PASSWORD
+  public shared ({ caller }) func adminResetPassword(targetEmail : Text, newPassword : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can reset passwords");
+    };
+    if (not emailToPrincipalMap.containsKey(targetEmail)) {
+      Runtime.trap("User not found");
+    };
+    passwordsMap.add(targetEmail, newPassword);
+  };
+
+  // APP SETTINGS FUNCTIONS
+
+  public query ({ caller }) func getAppSettings() : async AppSettings {
+    switch (appSettings) {
+      case (?settings) { settings };
+      case (null) {
+        {
+          termsText = "Default terms";
+          privacyText = "Default privacy";
+          stockGainColor = "#00FF00";
+          stockLossColor = "#FF0000";
+        };
+      };
+    };
+  };
+
+  public shared ({ caller }) func updateAppSettings(termsText : Text, privacyText : Text, stockGainColor : Text, stockLossColor : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can update app settings");
+    };
+    appSettings := ?{ termsText; privacyText; stockGainColor; stockLossColor };
+  };
+
+  // ADMIN VIEW ALL POSITIONS
+  public shared ({ caller }) func getAllPositions() : async [(Principal, [PositionSummary])] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can view all positions");
+    };
+
+    let positionsArray = positionsMap.toArray();
+    positionsArray.map(
+      func((principal, userPositions)) {
+        let positions = userPositions.values().toArray();
+        let summaries = positions.map(
+          func(pos) {
+            let currentPrice = getCurrentPrice(pos.symbol);
+            {
+              symbol = pos.symbol;
+              quantity = pos.quantity;
+              avgBuyPrice = pos.avgBuyPrice;
+              tradeType = pos.tradeType;
+              marginUsed = pos.marginUsed;
+              unrealizedPnL = (currentPrice - pos.avgBuyPrice) * pos.quantity;
+            };
+          }
+        );
+        (principal, summaries.sort());
+      }
+    );
+  };
+
+  // ADMIN CLOSE POSITION
+  public shared ({ caller }) func adminClosePosition(targetPrincipal : Principal, symbol : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can close positions");
+    };
+
+    switch (positionsMap.get(targetPrincipal)) {
+      case (null) { Runtime.trap("No positions found for user") };
+      case (?userPositions) {
+        switch (userPositions.get(symbol)) {
+          case (null) { Runtime.trap("No position found for symbol") };
+          case (?pos) {
+            // Remove position from user's positions
+            userPositions.remove(symbol);
+
+            // Calculate margin to return
+            let marginToReturn = pos.marginUsed;
+
+            // Update user's balance
+            switch (usersMap.get(targetPrincipal)) {
+              case (null) { Runtime.trap("User not found") };
+              case (?user) {
+                let updatedUser = {
+                  name = user.name;
+                  email = user.email;
+                  mobile = user.mobile;
+                  balance = user.balance + marginToReturn;
+                };
+                usersMap.add(targetPrincipal, updatedUser);
+              };
+            };
+          };
+        };
+      };
+    };
+  };
+
+  // ADMIN EDIT POSITION
+  public shared ({ caller }) func adminEditPosition(targetPrincipal : Principal, symbol : Text, newQuantity : Float, newAvgPrice : Float) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can edit positions");
+    };
+
+    switch (positionsMap.get(targetPrincipal)) {
+      case (null) { Runtime.trap("No positions found for user") };
+      case (?userPositions) {
+        switch (userPositions.get(symbol)) {
+          case (null) { Runtime.trap("No position found for symbol") };
+          case (?pos) {
+            let updatedPosition = {
+              symbol = pos.symbol;
+              quantity = newQuantity;
+              avgBuyPrice = newAvgPrice;
+              tradeType = pos.tradeType;
+              marginUsed = if (pos.tradeType == #intraday) { calculateMargin(newAvgPrice, newQuantity, 500) } else {
+                calculateMargin(newAvgPrice, newQuantity, 100);
+              };
+              unrealizedPnL = pos.unrealizedPnL;
+              timestamp = pos.timestamp;
+            };
+
+            userPositions.add(symbol, updatedPosition);
+          };
+        };
+      };
+    };
+  };
+};

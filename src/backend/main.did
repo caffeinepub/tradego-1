@@ -1,0 +1,239 @@
+type WithdrawalStatus = 
+ variant {
+   approved;
+   pending;
+   rejected;
+ };
+type WithdrawalRequestV2 = 
+ record {
+   accountNumber: opt text;
+   amount: float64;
+   bankName: opt text;
+   id: text;
+   ifscCode: opt text;
+   requestTime: Time;
+   status: WithdrawalStatus;
+   upiId: opt text;
+   userEmail: text;
+   withdrawalMethod: WithdrawalMethod;
+ };
+type WithdrawalMethod = 
+ variant {
+   bank;
+   upi;
+ };
+type User = 
+ record {
+   balance: float64;
+   email: text;
+   mobile: text;
+   name: text;
+ };
+type TradeType = 
+ variant {
+   carryForward;
+   intraday;
+ };
+type Time = int;
+type Side = 
+ variant {
+   buy;
+   sell;
+ };
+type PositionSummary = 
+ record {
+   avgBuyPrice: float64;
+   marginUsed: float64;
+   quantity: float64;
+   symbol: text;
+   tradeType: TradeType;
+   unrealizedPnL: float64;
+ };
+type PortfolioSummary = 
+ record {
+   availableBalance: float64;
+   currentValue: float64;
+   marginAvailable: float64;
+   marginUsed: float64;
+   totalInvested: float64;
+   totalPnL: float64;
+ };
+type PaymentSettingsV2 = 
+ record {
+   bankAccountHolder: text;
+   bankAccountNumber: text;
+   bankIfsc: text;
+   bankName: text;
+   qrCodeData: text;
+   upiId: text;
+ };
+type OrderV2 = 
+ record {
+   id: text;
+   marginUsed: float64;
+   orderType: OrderType;
+   price: float64;
+   quantity: float64;
+   side: Side;
+   status: OrderStatus;
+   symbol: text;
+   timestamp: Time;
+   tradeType: TradeType;
+   userEmail: text;
+ };
+type OrderType = 
+ variant {
+   limit;
+   market;
+   stopLoss;
+ };
+type OrderStatus = 
+ variant {
+   cancelled;
+   executed;
+   pending;
+   rejected;
+ };
+type InstrumentUpdate = 
+ record {
+   currentPrice: float64;
+   previousClose: float64;
+   symbol: text;
+ };
+type Instrument = 
+ record {
+   category: Category;
+   currentPrice: float64;
+   name: text;
+   previousClose: float64;
+   priceChangePercent: float64;
+   symbol: text;
+ };
+type DepositStatus = 
+ variant {
+   approved;
+   pending;
+   rejected;
+ };
+type DepositRequestV2 = 
+ record {
+   amount: float64;
+   id: text;
+   requestTime: Time;
+   status: DepositStatus;
+   userEmail: text;
+   utrNumber: opt text;
+ };
+type CreditCodeV2 = 
+ record {
+   amount: float64;
+   code: text;
+   createdAt: Time;
+   redeemedAt: opt Time;
+   redeemedBy: opt text;
+   status: CreditCodeStatus;
+ };
+type CreditCodeStatus = 
+ variant {
+   active;
+   redeemed;
+ };
+type Category = 
+ variant {
+   commodity;
+   crypto;
+   forex;
+   stock;
+ };
+type AppSettings = 
+ record {
+   privacyText: text;
+   stockGainColor: text;
+   stockLossColor: text;
+   termsText: text;
+ };
+type AdminStats = 
+ record {
+   totalInstruments: nat;
+   totalOrders: nat;
+   totalUsers: nat;
+ };
+service : {
+  addToWatchlist: (token: text, symbol: text) -> ();
+  adjustUserBalance: (token: text, targetEmail: text, amount: float64,
+   isDeduct: bool) -> ();
+  adminClosePosition: (token: text, targetEmail: text, symbol: text) -> ();
+  adminEditPosition: (token: text, targetEmail: text, symbol: text,
+   newQuantity: float64, newAvgPrice: float64) -> ();
+  adminResetPassword: (token: text, targetEmail: text, newPassword: text) ->
+   ();
+  approveDeposit: (token: text, requestId: text) -> ();
+  approveWithdrawal: (token: text, requestId: text) -> ();
+  authenticate: (userPrincipal: principal) -> (bool);
+  authenticateAdmin: (userPrincipal: principal) -> (bool);
+  closePosition: (token: text, symbol: text, quantity: float64) -> ();
+  createCreditCode: (token: text, code: text, amount: float64) -> ();
+  createInstrument: (symbol: text, name: text, category: Category,
+   currentPrice: float64, previousClose: float64) -> ();
+  deleteCreditCode: (token: text, code: text) -> ();
+  deleteInstrument: (symbol: text) -> ();
+  deposit: (amount: float64) -> ();
+  getAdminStats: (token: text) -> (AdminStats);
+  getAllCreditCodes: (token: text) -> (vec CreditCodeV2);
+  getAllDepositRequests: (token: text) -> (vec DepositRequestV2);
+  getAllInstruments: () -> (vec Instrument) query;
+  getAllOrders: (token: text) -> (vec OrderV2);
+  getAllPositions: (token: text) -> (vec record {
+                                           text;
+                                           vec PositionSummary;
+                                         });
+  getAllUsers: (token: text) -> (vec record {
+                                       text;
+                                       User;
+                                     });
+  getAllWithdrawalRequests: (token: text) -> (vec WithdrawalRequestV2);
+  getAppSettings: () -> (AppSettings) query;
+  getAvailableBalance: () -> (float64) query;
+  getAvailableBalanceByToken: (token: text) -> (float64) query;
+  getDepositRequests: (token: text) -> (vec DepositRequestV2) query;
+  getInstrumentsByCategory: (category: Category) -> (vec Instrument) query;
+  getOpenPositions: (token: text) -> (vec PositionSummary) query;
+  getOrders: (token: text) -> (vec OrderV2) query;
+  getPaymentSettings: () -> (opt PaymentSettingsV2) query;
+  getPortfolioSummary: (token: text) -> (PortfolioSummary) query;
+  getProfileByToken: (token: text) -> (User) query;
+  getSessionFull: (token: text) -> (opt record {
+                                          User;
+                                          bool;
+                                        }) query;
+  getUserByToken: (token: text) -> (principal, User) query;
+  getUserProfile: () -> (User) query;
+  getUserProfileByToken: (token: text) -> (User) query;
+  getWatchlist: (token: text) -> (vec text) query;
+  getWithdrawalRequests: (token: text) -> (vec WithdrawalRequestV2) query;
+  isAdminByToken: (token: text) -> (bool) query;
+  isAdminUser: (p: principal) -> (bool) query;
+  loginFull: (email: text, password: text) -> (text, User, bool);
+  loginWithPassword: (email: text, password: text) -> (text);
+  logoutByToken: (token: text) -> ();
+  placeOrder: (token: text, symbol: text, quantity: float64, price: float64,
+   orderType: OrderType, tradeType: TradeType, side: Side) -> (text);
+  redeemCreditCode: (token: text, code: text) -> ();
+  registerUser: (name: text, email: text, mobile: text) -> ();
+  registerUserWithPassword: (name: text, email: text, mobile: text, password:
+   text) -> ();
+  rejectDeposit: (token: text, requestId: text) -> ();
+  rejectWithdrawal: (token: text, requestId: text) -> ();
+  removeFromWatchlist: (token: text, symbol: text) -> ();
+  requestDeposit: (token: text, amount: float64) -> (text);
+  requestWithdrawal: (token: text, amount: float64, withdrawalMethod:
+   WithdrawalMethod, upiId: opt text, bankName: opt text, accountNumber:
+   opt text, ifscCode: opt text) -> (text);
+  setPaymentSettings: (token: text, upiId: text, qrCodeData: text,
+   bankAccountHolder: text, bankName: text, bankAccountNumber: text,
+   bankIfsc: text) -> ();
+  submitDepositUtr: (token: text, requestId: text, utrNumber: text) -> ();
+  updateAppSettings: (token: text, termsText: text, privacyText: text,
+   stockGainColor: text, stockLossColor: text) -> ();
+  updateInstrumentPrice: (update: InstrumentUpdate) -> ();
+}

@@ -66,11 +66,21 @@ function AppContent() {
     }
 
     setSessionVerifying(true);
-    Promise.all([actor.getProfileByToken(token), actor.isAdminByToken(token)])
-      .then(([user, adminStatus]) => {
-        setCurrentUser(user);
-        setIsAdmin(adminStatus);
-        setSessionVerified(true);
+    actor
+      .getSessionFull(token)
+      .then((result) => {
+        if (!result) {
+          // Token invalid or expired
+          logout();
+          setCurrentUser(null);
+          setIsAdmin(false);
+          setSessionVerified(false);
+        } else {
+          const [user, adminStatus] = result;
+          setCurrentUser(user);
+          setIsAdmin(adminStatus);
+          setSessionVerified(true);
+        }
         setSessionVerifying(false);
       })
       .catch(() => {
@@ -130,11 +140,10 @@ function AppContent() {
   const handleLogin = useCallback(
     async (email: string, password: string) => {
       if (!actor) throw new Error("Not ready");
-      const newToken = await actor.loginWithPassword(email, password);
-      const [user, adminStatus] = await Promise.all([
-        actor.getProfileByToken(newToken),
-        actor.isAdminByToken(newToken),
-      ]);
+      const [newToken, user, adminStatus] = await actor.loginFull(
+        email,
+        password,
+      );
       setToken(newToken);
       setCurrentUser(user);
       setIsAdmin(adminStatus);
@@ -148,12 +157,11 @@ function AppContent() {
     async (name: string, email: string, mobile: string, password: string) => {
       if (!actor) throw new Error("Not ready");
       await actor.registerUserWithPassword(name, email, mobile, password);
-      // Auto-login after registration
-      const newToken = await actor.loginWithPassword(email, password);
-      const [user, adminStatus] = await Promise.all([
-        actor.getProfileByToken(newToken),
-        actor.isAdminByToken(newToken),
-      ]);
+      // Auto-login after registration using single call
+      const [newToken, user, adminStatus] = await actor.loginFull(
+        email,
+        password,
+      );
       setToken(newToken);
       setCurrentUser(user);
       setIsAdmin(adminStatus);
@@ -184,21 +192,8 @@ function AppContent() {
     }
   };
 
-  // Loading: waiting for actor to initialize
-  if (actorFetching) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-full bg-gain-muted flex items-center justify-center mx-auto mb-3">
-            <Loader2 className="w-6 h-6 text-gain animate-spin" />
-          </div>
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Verifying stored session token
+  // Verifying stored session token — show spinner only when we have a token
+  // and are waiting for the actor to check it (avoids showing login form briefly)
   if (sessionVerifying && token) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -212,7 +207,7 @@ function AppContent() {
     );
   }
 
-  // Not logged in — show registration/login page
+  // Not logged in — show registration/login page immediately (actor may still be loading)
   if (!sessionVerified || !token) {
     return (
       <>

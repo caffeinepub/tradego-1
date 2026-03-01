@@ -19,7 +19,10 @@ export function formatIndianNumber(num: number): string {
 /**
  * Format price based on category
  */
-export function formatPrice(price: number, category: Category | string): string {
+export function formatPrice(
+  price: number,
+  category: Category | string,
+): string {
   if (category === Category.forex) {
     if (price < 1) return `₹${price.toFixed(4)}`;
     return `₹${price.toFixed(2)}`;
@@ -96,7 +99,11 @@ export function getLeverage(tradeType: string): number {
 /**
  * Calculate required margin
  */
-export function calculateMargin(price: number, quantity: number, tradeType: string): number {
+export function calculateMargin(
+  price: number,
+  quantity: number,
+  tradeType: string,
+): number {
   const leverage = getLeverage(tradeType);
   return (price * quantity) / leverage;
 }
@@ -105,7 +112,8 @@ export function calculateMargin(price: number, quantity: number, tradeType: stri
  * Apply random price fluctuation (±0.1% to ±0.5%)
  */
 export function fluctuatePrice(basePrice: number): number {
-  const variation = (Math.random() * 0.004 + 0.001) * (Math.random() > 0.5 ? 1 : -1);
+  const variation =
+    (Math.random() * 0.004 + 0.001) * (Math.random() > 0.5 ? 1 : -1);
   return basePrice * (1 + variation);
 }
 

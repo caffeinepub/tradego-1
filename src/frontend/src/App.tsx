@@ -1,107 +1,181 @@
-import { useEffect, useState, useCallback } from "react";
 import { Toaster } from "@/components/ui/sonner";
-import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
-import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import { useActor } from "./hooks/useActor";
-import {
-  useGetUserProfile,
-  useGetAllInstruments,
-  useCreateInstrument,
-} from "./hooks/useQueries";
 import { useLivePrices } from "./hooks/useLivePrices";
+import { useCreateInstrument, useGetAllInstruments } from "./hooks/useQueries";
 
-import { Registration } from "./components/Registration";
 import { Header } from "./components/Header";
-import { Dashboard } from "./pages/Dashboard";
-import { Markets } from "./pages/Markets";
-import { Trade } from "./pages/Trade";
-import { Positions } from "./pages/Positions";
+import { Registration } from "./components/Registration";
 import { Account } from "./pages/Account";
 import { AdminPanel } from "./pages/AdminPanel";
+import { Dashboard } from "./pages/Dashboard";
+import { Markets } from "./pages/Markets";
+import { OptionChain } from "./pages/OptionChain";
+import { Positions } from "./pages/Positions";
+import { Trade } from "./pages/Trade";
 
+import type { Instrument, User } from "./backend.d";
+import { SessionProvider, useSession } from "./contexts/SessionContext";
 import { SEED_INSTRUMENTS } from "./utils/seedData";
-import { Instrument } from "./backend.d";
 
-type Tab = "dashboard" | "markets" | "trade" | "positions" | "account";
+type Tab =
+  | "dashboard"
+  | "markets"
+  | "trade"
+  | "positions"
+  | "optionchain"
+  | "account";
 
 function AppContent() {
-  const { identity, isInitializing, login, loginStatus } = useInternetIdentity();
+  const { token, setToken, logout } = useSession();
   const { actor, isFetching: actorFetching } = useActor();
+
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
-  const [tradeInstrument, setTradeInstrument] = useState<Instrument | null>(null);
+  const [tradeInstrument, setTradeInstrument] = useState<Instrument | null>(
+    null,
+  );
   const [seedAttempted, setSeedAttempted] = useState(false);
-  const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
-  // Queries
-  const {
-    data: userProfile,
-    isLoading: profileLoading,
-    isFetched: profileFetched,
-  } = useGetUserProfile();
+  // Auth state
+  const [sessionVerified, setSessionVerified] = useState(false);
+  const [sessionVerifying, setSessionVerifying] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
 
-  const {
-    data: instruments = [],
-    isLoading: instrumentsLoading,
-  } = useGetAllInstruments();
+  const { data: instruments = [], isLoading: instrumentsLoading } =
+    useGetAllInstruments();
 
   const createInstrument = useCreateInstrument();
 
   // Live simulated prices
   const liveprices = useLivePrices(instruments);
 
-  // Check admin status once identity + actor are ready
+  // On mount / token change: verify session via backend
   useEffect(() => {
-    if (!actor || actorFetching || !identity) return;
-    const principal = identity.getPrincipal();
-    actor.isAdminUser(principal).then((result) => {
-      setIsAdmin(result);
-    }).catch(() => {
-      setIsAdmin(false);
-    });
-  }, [actor, actorFetching, identity]);
+    if (!actor || actorFetching) return;
 
-  // Determine registration status
-  useEffect(() => {
-    if (!profileFetched) return;
-    setIsRegistered(!!userProfile);
-  }, [userProfile, profileFetched]);
+    if (!token) {
+      setSessionVerified(false);
+      setSessionVerifying(false);
+      setCurrentUser(null);
+      setIsAdmin(false);
+      return;
+    }
+
+    setSessionVerifying(true);
+    Promise.all([actor.getProfileByToken(token), actor.isAdminByToken(token)])
+      .then(([user, adminStatus]) => {
+        setCurrentUser(user);
+        setIsAdmin(adminStatus);
+        setSessionVerified(true);
+        setSessionVerifying(false);
+      })
+      .catch(() => {
+        // Token invalid or expired
+        logout();
+        setCurrentUser(null);
+        setIsAdmin(false);
+        setSessionVerified(false);
+        setSessionVerifying(false);
+      });
+  }, [token, actor, actorFetching, logout]);
 
   // Seed instruments if empty
   const seedInstruments = useCallback(async () => {
-    if (!actor || seedAttempted || instruments.length > 0 || actorFetching) return;
+    if (!actor || seedAttempted || instruments.length > 0 || actorFetching)
+      return;
     setSeedAttempted(true);
     try {
       await Promise.all(
         SEED_INSTRUMENTS.map((inst) =>
-          createInstrument.mutateAsync({
-            symbol: inst.symbol,
-            name: inst.name,
-            category: inst.category,
-            currentPrice: inst.currentPrice,
-            previousClose: inst.previousClose,
-          }).catch(() => {/* ignore duplicate errors */})
-        )
+          createInstrument
+            .mutateAsync({
+              symbol: inst.symbol,
+              name: inst.name,
+              category: inst.category,
+              currentPrice: inst.currentPrice,
+              previousClose: inst.previousClose,
+            })
+            .catch(() => {
+              /* ignore duplicate errors */
+            }),
+        ),
       );
     } catch {
       // Silently ignore seeding errors
     }
-  }, [actor, seedAttempted, instruments.length, actorFetching, createInstrument]);
+  }, [
+    actor,
+    seedAttempted,
+    instruments.length,
+    actorFetching,
+    createInstrument,
+  ]);
 
   useEffect(() => {
     if (instruments.length === 0 && actor && !actorFetching && !seedAttempted) {
       seedInstruments();
     }
-  }, [instruments.length, actor, actorFetching, seedAttempted, seedInstruments]);
+  }, [
+    instruments.length,
+    actor,
+    actorFetching,
+    seedAttempted,
+    seedInstruments,
+  ]);
 
-  // Handle login if no identity
-  useEffect(() => {
-    if (!isInitializing && !identity) {
-      login();
+  const handleLogin = useCallback(
+    async (email: string, password: string) => {
+      if (!actor) throw new Error("Not ready");
+      const newToken = await actor.loginWithPassword(email, password);
+      const [user, adminStatus] = await Promise.all([
+        actor.getProfileByToken(newToken),
+        actor.isAdminByToken(newToken),
+      ]);
+      setToken(newToken);
+      setCurrentUser(user);
+      setIsAdmin(adminStatus);
+      setSessionVerified(true);
+      return { user, isAdmin: adminStatus };
+    },
+    [actor, setToken],
+  );
+
+  const handleRegister = useCallback(
+    async (name: string, email: string, mobile: string, password: string) => {
+      if (!actor) throw new Error("Not ready");
+      await actor.registerUserWithPassword(name, email, mobile, password);
+      // Auto-login after registration
+      const newToken = await actor.loginWithPassword(email, password);
+      const [user, adminStatus] = await Promise.all([
+        actor.getProfileByToken(newToken),
+        actor.isAdminByToken(newToken),
+      ]);
+      setToken(newToken);
+      setCurrentUser(user);
+      setIsAdmin(adminStatus);
+      setSessionVerified(true);
+      toast.success("Account created! Welcome to TradeGo.1");
+    },
+    [actor, setToken],
+  );
+
+  const handleLogout = useCallback(async () => {
+    if (actor && token) {
+      try {
+        await actor.logoutByToken(token);
+      } catch {
+        // Ignore logout errors
+      }
     }
-  }, [isInitializing, identity, login]);
+    logout();
+    setCurrentUser(null);
+    setIsAdmin(false);
+    setSessionVerified(false);
+  }, [actor, token, logout]);
 
   const handleTabChange = (tab: string, instrument?: Instrument) => {
     setActiveTab(tab as Tab);
@@ -110,95 +184,66 @@ function AppContent() {
     }
   };
 
-  // Loading states
-  if (isInitializing || loginStatus === "logging-in") {
+  // Loading: waiting for actor to initialize
+  if (actorFetching) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 rounded-full bg-gain-muted flex items-center justify-center mx-auto mb-3">
             <Loader2 className="w-6 h-6 text-gain animate-spin" />
           </div>
-          <p className="text-sm text-muted-foreground">Connecting to Internet Identity...</p>
+          <p className="text-sm text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
   }
 
-  if (!identity) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="flex items-center gap-3 justify-center mb-6">
-            <img src="/assets/generated/tradego-logo-transparent.dim_80x80.png" alt="TradeGo.1" className="w-12 h-12" />
-            <h1 className="text-2xl font-bold gradient-brand">TradeGo.1</h1>
-          </div>
-          <p className="text-sm text-muted-foreground mb-4">Please sign in to start trading</p>
-          <button
-            type="button"
-            onClick={login}
-            className="bg-gain text-background px-6 py-2.5 rounded-md font-semibold hover:opacity-90 transition-opacity glow-gain"
-          >
-            Sign In with Internet Identity
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Loading admin check
-  if (isAdmin === null && identity && !actorFetching) {
+  // Verifying stored session token
+  if (sessionVerifying && token) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 rounded-full bg-gain-muted flex items-center justify-center mx-auto mb-3">
             <Loader2 className="w-6 h-6 text-gain animate-spin" />
           </div>
-          <p className="text-sm text-muted-foreground">Verifying account...</p>
+          <p className="text-sm text-muted-foreground">Verifying session...</p>
         </div>
       </div>
+    );
+  }
+
+  // Not logged in — show registration/login page
+  if (!sessionVerified || !token) {
+    return (
+      <>
+        <Registration
+          onLogin={handleLogin}
+          onRegister={handleRegister}
+          isActorReady={!!actor && !actorFetching}
+        />
+        <Toaster richColors theme="dark" position="top-right" />
+      </>
     );
   }
 
   // Admin view
-  if (isAdmin === true) {
+  if (isAdmin) {
     return (
       <>
-        <AdminPanel />
+        <AdminPanel onLogout={handleLogout} />
         <Toaster richColors theme="dark" position="top-right" />
       </>
     );
   }
 
-  if (profileLoading || isRegistered === null) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-full bg-gain-muted flex items-center justify-center mx-auto mb-3">
-            <Loader2 className="w-6 h-6 text-gain animate-spin" />
-          </div>
-          <p className="text-sm text-muted-foreground">Loading your account...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show registration if not registered
-  if (!isRegistered) {
-    return (
-      <>
-        <Registration onRegistered={() => setIsRegistered(true)} />
-        <Toaster richColors theme="dark" position="top-right" />
-      </>
-    );
-  }
-
-  // Main app
+  // Main trading app
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Header
-        userName={userProfile ? userProfile.name : undefined}
+        userName={currentUser?.name}
         activeTab={activeTab}
         onTabChange={handleTabChange}
+        onLogout={handleLogout}
       />
 
       <main className="flex-1 overflow-auto">
@@ -225,12 +270,12 @@ function AppContent() {
           />
         )}
         {activeTab === "positions" && (
-          <Positions
-            instruments={instruments}
-            liveprices={liveprices}
-          />
+          <Positions instruments={instruments} liveprices={liveprices} />
         )}
-        {activeTab === "account" && <Account />}
+        {activeTab === "optionchain" && <OptionChain />}
+        {activeTab === "account" && (
+          <Account onLogout={handleLogout} userName={currentUser?.name} />
+        )}
       </main>
 
       <Toaster richColors theme="dark" position="top-right" />
@@ -239,5 +284,9 @@ function AppContent() {
 }
 
 export default function App() {
-  return <AppContent />;
+  return (
+    <SessionProvider>
+      <AppContent />
+    </SessionProvider>
+  );
 }

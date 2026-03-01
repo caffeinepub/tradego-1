@@ -1,0 +1,28 @@
+{
+  "name": "TradeGo.1",
+  "short_name": "TradeGo",
+  "description": "Stock market trading app for crypto, forex, commodities and India markets",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#16c784",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/assets/generated/tradego-logo-transparent.dim_80x80.png",
+      "sizes": "80x80",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/generated/tradego-logo-transparent.dim_80x80.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/generated/tradego-logo-transparent.dim_80x80.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

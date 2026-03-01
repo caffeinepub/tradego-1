@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Instrument } from "../backend.d";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Instrument } from "../backend.d";
 import { fluctuatePrice } from "../utils/format";
 
 export interface LivePrice {
@@ -46,7 +46,8 @@ export function useLivePrices(instruments: Instrument[]): LivePriceMap {
         next[inst.symbol] = {
           price: newPrice,
           prevPrice: current,
-          direction: newPrice > current ? "up" : newPrice < current ? "down" : "neutral",
+          direction:
+            newPrice > current ? "up" : newPrice < current ? "down" : "neutral",
         };
       }
       return next;

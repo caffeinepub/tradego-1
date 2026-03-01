@@ -1,12 +1,6 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -16,39 +10,53 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  User,
-  Zap,
-  TrendingUp,
-  Shield,
-  LogOut,
-  Wallet,
-  BarChart3,
   ArrowDownToLine,
   ArrowUpFromLine,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  RefreshCw,
-  Copy,
-  Check,
-  QrCode,
+  BarChart3,
   Building2,
+  Check,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Loader2,
+  LogOut,
+  QrCode,
+  RefreshCw,
+  Shield,
   Smartphone,
+  TrendingUp,
+  User,
+  Wallet,
+  XCircle,
+  Zap,
 } from "lucide-react";
-import {
-  useGetUserProfile,
-  useGetPortfolioSummary,
-  useDeposit,
-  useRequestWithdrawal,
-  useGetWithdrawalRequests,
-  useGetPaymentSettings,
-} from "../hooks/useQueries";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
-import { formatBalance, formatPnL } from "../utils/format";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { WithdrawalStatus, WithdrawalMethod } from "../backend.d";
+import { DepositStatus, WithdrawalMethod } from "../backend.d";
+import {
+  useGetDepositRequests,
+  useGetPaymentSettings,
+  useGetPortfolioSummary,
+  useGetUserProfile,
+  useGetWithdrawalRequests,
+  useRequestDeposit,
+  useRequestWithdrawal,
+  useSubmitDepositUtr,
+} from "../hooks/useQueries";
+import { formatBalance, formatPnL } from "../utils/format";
+
+// WithdrawalStatus is used in the backend but not yet exported as enum — define locally
+enum WithdrawalStatus {
+  pending = "pending",
+  approved = "approved",
+  rejected = "rejected",
+}
 
 // ─── Countdown Timer Hook ──────────────────────────────────────────────────
 
@@ -92,11 +100,15 @@ function WithdrawalRow({ amount, status, requestTime }: WithdrawalRowProps) {
 
   const requestMs = Number(requestTime / 1_000_000n);
   const requestDate = new Date(requestMs);
-  const timeStr = isNaN(requestDate.getTime())
+  const timeStr = Number.isNaN(requestDate.getTime())
     ? "—"
-    : requestDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) +
-      " · " +
-      requestDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+    : `${requestDate.toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })} · ${requestDate.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+      })}`;
 
   const formatCountdown = (secs: number) => {
     if (secs <= 0) return "Processing...";
@@ -113,7 +125,9 @@ function WithdrawalRow({ amount, status, requestTime }: WithdrawalRowProps) {
             ₹{amount.toLocaleString("en-IN")}
           </span>
           {status === WithdrawalStatus.pending && (
-            <Badge className="bg-gold-muted text-gold border border-gold/20 text-xs">Pending</Badge>
+            <Badge className="bg-gold-muted text-gold border border-gold/20 text-xs">
+              Pending
+            </Badge>
           )}
           {status === WithdrawalStatus.approved && (
             <Badge className="bg-gain-muted text-gain border border-gain/20 text-xs flex items-center gap-1">
@@ -160,7 +174,11 @@ function CopyButton({ text }: { text: string }) {
       className="ml-2 p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
       title="Copy"
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-gain" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? (
+        <Check className="w-3.5 h-3.5 text-gain" />
+      ) : (
+        <Copy className="w-3.5 h-3.5" />
+      )}
     </button>
   );
 }
@@ -170,8 +188,11 @@ function CopyButton({ text }: { text: string }) {
 function DepositDialog() {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
-  const [step, setStep] = useState<"amount" | "payment">("amount");
-  const deposit = useDeposit();
+  const [step, setStep] = useState<"amount" | "payment" | "utr">("amount");
+  const [requestId, setRequestId] = useState<string>("");
+  const [utrNumber, setUtrNumber] = useState<string>("");
+  const requestDeposit = useRequestDeposit();
+  const submitDepositUtr = useSubmitDepositUtr();
   const { data: paymentSettings } = useGetPaymentSettings();
 
   const handleClose = (val: boolean) => {
@@ -179,31 +200,56 @@ function DepositDialog() {
     if (!val) {
       setStep("amount");
       setAmount("");
+      setRequestId("");
+      setUtrNumber("");
     }
   };
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
-    const val = parseFloat(amount);
-    if (isNaN(val) || val < 500) {
+    const val = Number.parseFloat(amount);
+    if (Number.isNaN(val) || val < 500) {
       toast.error("Minimum deposit is ₹500");
       return;
     }
     setStep("payment");
   };
 
-  const handleConfirmPayment = async () => {
-    const val = parseFloat(amount);
+  const handleRequestDeposit = async () => {
+    const val = Number.parseFloat(amount);
     try {
-      await deposit.mutateAsync(val);
-      toast.success("Deposit confirmed! Balance updated instantly.");
-      handleClose(false);
+      const id = await requestDeposit.mutateAsync(val);
+      setRequestId(id);
+      setStep("utr");
     } catch {
-      toast.error("Deposit failed. Please try again.");
+      toast.error("Failed to create deposit request. Please try again.");
     }
   };
 
-  const isQrUrl = paymentSettings?.qrCodeData?.startsWith("http");
+  const handleSubmitUtr = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!utrNumber.trim()) {
+      toast.error("Please enter your UTR / transaction reference number");
+      return;
+    }
+    try {
+      await submitDepositUtr.mutateAsync({
+        requestId,
+        utrNumber: utrNumber.trim(),
+      });
+      toast.success(
+        "Deposit request submitted. Admin will credit your balance after verification.",
+      );
+      handleClose(false);
+    } catch {
+      toast.error("Failed to submit UTR. Please try again.");
+    }
+  };
+
+  // Support both http URLs and base64 data URLs (data:image/...)
+  const isQrImage =
+    paymentSettings?.qrCodeData?.startsWith("http") ||
+    paymentSettings?.qrCodeData?.startsWith("data:image");
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -214,7 +260,7 @@ function DepositDialog() {
         </Button>
       </DialogTrigger>
       <DialogContent className="bg-card border-border sm:max-w-sm">
-        {step === "amount" ? (
+        {step === "amount" && (
           <>
             <DialogHeader>
               <DialogTitle className="text-foreground flex items-center gap-2">
@@ -222,12 +268,17 @@ function DepositDialog() {
                 Deposit Funds
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Funds are credited <span className="text-gain font-semibold">instantly</span> to your trading account.
+                Funds are credited{" "}
+                <span className="text-gain font-semibold">instantly</span> to
+                your trading account after admin verification.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleNext} className="space-y-4 mt-2">
               <div className="space-y-1.5">
-                <Label htmlFor="deposit-amount" className="text-xs text-muted-foreground uppercase tracking-wide">
+                <Label
+                  htmlFor="deposit-amount"
+                  className="text-xs text-muted-foreground uppercase tracking-wide"
+                >
                   Amount (INR)
                 </Label>
                 <div className="relative">
@@ -249,19 +300,31 @@ function DepositDialog() {
               </div>
               <div className="bg-gain-muted/40 border border-gain/20 rounded-md px-3 py-2 flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5 text-gain shrink-0" />
-                <span className="text-xs text-gain font-medium">Instant credit — no waiting time</span>
+                <span className="text-xs text-gain font-medium">
+                  Balance credited after admin verification
+                </span>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => handleClose(false)} className="border-border text-muted-foreground">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleClose(false)}
+                  className="border-border text-muted-foreground"
+                >
                   Cancel
                 </Button>
-                <Button type="submit" className="bg-gain text-background hover:opacity-90 font-semibold">
+                <Button
+                  type="submit"
+                  className="bg-gain text-background hover:opacity-90 font-semibold"
+                >
                   Next: Payment Details
                 </Button>
               </DialogFooter>
             </form>
           </>
-        ) : (
+        )}
+
+        {step === "payment" && (
           <>
             <DialogHeader>
               <DialogTitle className="text-foreground flex items-center gap-2">
@@ -269,7 +332,11 @@ function DepositDialog() {
                 Complete Payment
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Pay <span className="text-foreground font-bold font-mono">₹{parseFloat(amount).toLocaleString("en-IN")}</span> via UPI to complete your deposit.
+                Pay{" "}
+                <span className="text-foreground font-bold font-mono">
+                  ₹{Number.parseFloat(amount).toLocaleString("en-IN")}
+                </span>{" "}
+                via UPI, then submit your transaction number.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 mt-2">
@@ -277,7 +344,7 @@ function DepositDialog() {
                 <>
                   {/* QR Code */}
                   <div className="flex flex-col items-center gap-3 bg-white rounded-xl p-4 border border-border">
-                    {isQrUrl ? (
+                    {isQrImage ? (
                       <img
                         src={paymentSettings.qrCodeData}
                         alt="Payment QR Code"
@@ -297,7 +364,9 @@ function DepositDialog() {
 
                   {/* UPI ID */}
                   <div className="bg-muted/50 border border-border rounded-md px-3 py-2.5">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">UPI ID</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                      UPI ID
+                    </p>
                     <div className="flex items-center">
                       <span className="font-mono text-sm font-semibold text-foreground flex-1">
                         {paymentSettings.upiId}
@@ -308,44 +377,124 @@ function DepositDialog() {
 
                   {/* Amount reminder */}
                   <div className="bg-gain-muted/30 border border-gain/20 rounded-md px-3 py-2 flex items-center justify-between">
-                    <span className="text-xs text-gain font-medium">Amount to pay</span>
-                    <span className="font-mono font-bold text-gain">₹{parseFloat(amount).toLocaleString("en-IN")}</span>
+                    <span className="text-xs text-gain font-medium">
+                      Amount to pay
+                    </span>
+                    <span className="font-mono font-bold text-gain">
+                      ₹{Number.parseFloat(amount).toLocaleString("en-IN")}
+                    </span>
                   </div>
 
                   <p className="text-xs text-muted-foreground text-center">
-                    Scan QR or use UPI ID to pay, then click <span className="text-gain font-semibold">"I have paid"</span>
+                    Scan QR or use UPI ID to pay, then click{" "}
+                    <span className="text-gain font-semibold">
+                      "Next: Submit UTR"
+                    </span>
                   </p>
                 </>
               ) : (
                 <div className="text-center py-8 space-y-2">
                   <QrCode className="w-10 h-10 text-muted-foreground/30 mx-auto" />
-                  <p className="text-sm text-muted-foreground">Payment instructions not configured yet.</p>
-                  <p className="text-xs text-muted-foreground/60">Please contact support to complete your deposit.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Payment instructions not configured yet.
+                  </p>
+                  <p className="text-xs text-muted-foreground/60">
+                    Please contact support to complete your deposit.
+                  </p>
                 </div>
               )}
             </div>
             <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => setStep("amount")} className="border-border text-muted-foreground">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setStep("amount")}
+                className="border-border text-muted-foreground"
+              >
                 Back
               </Button>
               {paymentSettings && (
                 <Button
                   type="button"
-                  onClick={handleConfirmPayment}
-                  disabled={deposit.isPending}
+                  onClick={handleRequestDeposit}
+                  disabled={requestDeposit.isPending}
                   className="bg-gain text-background hover:opacity-90 font-semibold"
                 >
-                  {deposit.isPending ? (
+                  {requestDeposit.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Confirming...
+                      Processing...
                     </>
                   ) : (
-                    "I have paid"
+                    "Next: Submit UTR"
                   )}
                 </Button>
               )}
             </DialogFooter>
+          </>
+        )}
+
+        {step === "utr" && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-foreground flex items-center gap-2">
+                <Check className="w-4 h-4 text-gain" />
+                Submit Transaction Number
+              </DialogTitle>
+              <DialogDescription className="text-muted-foreground">
+                Enter the UTR / transaction reference number from your payment
+                app to confirm your deposit.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmitUtr} className="space-y-4 mt-2">
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="utr-number"
+                  className="text-xs text-muted-foreground uppercase tracking-wide"
+                >
+                  UTR / Transaction Reference Number
+                </Label>
+                <Input
+                  id="utr-number"
+                  type="text"
+                  value={utrNumber}
+                  onChange={(e) => setUtrNumber(e.target.value)}
+                  placeholder="UTR123456789012"
+                  className="bg-input border-border focus:border-gain text-foreground font-mono"
+                />
+              </div>
+              <div className="bg-gold-muted/40 border border-gold/20 rounded-md px-3 py-2 flex items-start gap-2">
+                <Clock className="w-3.5 h-3.5 text-gold shrink-0 mt-0.5" />
+                <span className="text-xs text-gold">
+                  Your balance will be credited once the admin verifies your
+                  payment.
+                </span>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setStep("payment")}
+                  className="border-border text-muted-foreground"
+                >
+                  Back
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submitDepositUtr.isPending}
+                  className="bg-gain text-background hover:opacity-90 font-semibold"
+                >
+                  {submitDepositUtr.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    "Submit UTR Number"
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
           </>
         )}
       </DialogContent>
@@ -379,8 +528,8 @@ function WithdrawDialog() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const val = parseFloat(amount);
-    if (isNaN(val) || val < 500) {
+    const val = Number.parseFloat(amount);
+    if (Number.isNaN(val) || val < 500) {
       toast.error("Minimum withdrawal is ₹500");
       return;
     }
@@ -400,9 +549,12 @@ function WithdrawDialog() {
         amount: val,
         withdrawalMethod: method,
         upiId: method === WithdrawalMethod.upi ? upiId.trim() : undefined,
-        bankName: method === WithdrawalMethod.bank ? bankName.trim() : undefined,
-        accountNumber: method === WithdrawalMethod.bank ? accountNumber.trim() : undefined,
-        ifscCode: method === WithdrawalMethod.bank ? ifscCode.trim() : undefined,
+        bankName:
+          method === WithdrawalMethod.bank ? bankName.trim() : undefined,
+        accountNumber:
+          method === WithdrawalMethod.bank ? accountNumber.trim() : undefined,
+        ifscCode:
+          method === WithdrawalMethod.bank ? ifscCode.trim() : undefined,
       });
       toast.success("Withdrawal requested. Processing in 30 min.");
       handleClose(false);
@@ -435,7 +587,10 @@ function WithdrawDialog() {
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
           {/* Amount */}
           <div className="space-y-1.5">
-            <Label htmlFor="withdraw-amount" className="text-xs text-muted-foreground uppercase tracking-wide">
+            <Label
+              htmlFor="withdraw-amount"
+              className="text-xs text-muted-foreground uppercase tracking-wide"
+            >
               Amount (INR)
             </Label>
             <div className="relative">
@@ -458,7 +613,9 @@ function WithdrawDialog() {
 
           {/* Method selector */}
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide">Withdrawal Method</Label>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+              Withdrawal Method
+            </Label>
             <RadioGroup
               value={method}
               onValueChange={(v) => setMethod(v as WithdrawalMethod)}
@@ -472,7 +629,11 @@ function WithdrawDialog() {
                     : "border-border text-muted-foreground hover:border-muted-foreground"
                 }`}
               >
-                <RadioGroupItem id="method-upi" value={WithdrawalMethod.upi} className="sr-only" />
+                <RadioGroupItem
+                  id="method-upi"
+                  value={WithdrawalMethod.upi}
+                  className="sr-only"
+                />
                 <Smartphone className="w-4 h-4 shrink-0" />
                 <span className="text-sm font-medium">UPI Transfer</span>
               </label>
@@ -484,7 +645,11 @@ function WithdrawDialog() {
                     : "border-border text-muted-foreground hover:border-muted-foreground"
                 }`}
               >
-                <RadioGroupItem id="method-bank" value={WithdrawalMethod.bank} className="sr-only" />
+                <RadioGroupItem
+                  id="method-bank"
+                  value={WithdrawalMethod.bank}
+                  className="sr-only"
+                />
                 <Building2 className="w-4 h-4 shrink-0" />
                 <span className="text-sm font-medium">Bank Transfer</span>
               </label>
@@ -494,7 +659,10 @@ function WithdrawDialog() {
           {/* UPI fields */}
           {method === WithdrawalMethod.upi && (
             <div className="space-y-1.5">
-              <Label htmlFor="upi-id" className="text-xs text-muted-foreground uppercase tracking-wide">
+              <Label
+                htmlFor="upi-id"
+                className="text-xs text-muted-foreground uppercase tracking-wide"
+              >
                 Your UPI ID
               </Label>
               <Input
@@ -512,7 +680,10 @@ function WithdrawDialog() {
           {method === WithdrawalMethod.bank && (
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="bank-name" className="text-xs text-muted-foreground uppercase tracking-wide">
+                <Label
+                  htmlFor="bank-name"
+                  className="text-xs text-muted-foreground uppercase tracking-wide"
+                >
                   Bank Name
                 </Label>
                 <Input
@@ -524,7 +695,10 @@ function WithdrawDialog() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="account-number" className="text-xs text-muted-foreground uppercase tracking-wide">
+                <Label
+                  htmlFor="account-number"
+                  className="text-xs text-muted-foreground uppercase tracking-wide"
+                >
                   Account Number
                 </Label>
                 <Input
@@ -536,7 +710,10 @@ function WithdrawDialog() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ifsc-code" className="text-xs text-muted-foreground uppercase tracking-wide">
+                <Label
+                  htmlFor="ifsc-code"
+                  className="text-xs text-muted-foreground uppercase tracking-wide"
+                >
                   IFSC Code
                 </Label>
                 <Input
@@ -552,7 +729,9 @@ function WithdrawDialog() {
 
           <div className="bg-gold-muted/40 border border-gold/20 rounded-md px-3 py-2 flex items-center gap-2">
             <Clock className="w-3.5 h-3.5 text-gold shrink-0" />
-            <span className="text-xs text-gold font-medium">Processing time: 30 minutes</span>
+            <span className="text-xs text-gold font-medium">
+              Processing time: 30 minutes
+            </span>
           </div>
 
           <DialogFooter>
@@ -587,13 +766,27 @@ function WithdrawDialog() {
 
 // ─── Account Page ─────────────────────────────────────────────────────────
 
-export function Account() {
-  const { data: profile, isLoading: profileLoading } = useGetUserProfile();
-  const { data: portfolio, isLoading: portfolioLoading } = useGetPortfolioSummary();
-  const { data: withdrawals = [], isLoading: withdrawalsLoading, refetch: refetchWithdrawals } = useGetWithdrawalRequests();
-  const { clear, identity } = useInternetIdentity();
+interface AccountProps {
+  onLogout: () => void;
+  userName?: string;
+}
 
-  const principal = identity?.getPrincipal().toString();
+export function Account({ onLogout, userName }: AccountProps) {
+  const { data: profile, isLoading: profileLoading } = useGetUserProfile();
+  const { data: portfolio, isLoading: portfolioLoading } =
+    useGetPortfolioSummary();
+  const {
+    data: withdrawals = [],
+    isLoading: withdrawalsLoading,
+    refetch: refetchWithdrawals,
+  } = useGetWithdrawalRequests();
+  const {
+    data: deposits = [],
+    isLoading: depositsLoading,
+    refetch: refetchDeposits,
+  } = useGetDepositRequests();
+
+  const displayName = profile?.name ?? userName;
 
   return (
     <div className="p-4 space-y-4 max-w-2xl mx-auto">
@@ -611,29 +804,28 @@ export function Account() {
                   <Skeleton className="h-5 w-32" />
                   <Skeleton className="h-3 w-48" />
                 </div>
-              ) : profile ? (
+              ) : (
                 <>
-                  <h2 className="text-lg font-bold text-foreground">{profile.name}</h2>
-                  {profile.email && (
-                    <p className="text-xs text-muted-foreground truncate">{profile.email}</p>
+                  <h2 className="text-lg font-bold text-foreground">
+                    {profile?.name ?? displayName ?? "Trader"}
+                  </h2>
+                  {profile?.email && (
+                    <p className="text-xs text-muted-foreground truncate">
+                      {profile.email}
+                    </p>
                   )}
-                  {principal && (
-                    <p
-                      className="text-xs text-muted-foreground/60 font-mono truncate"
-                      title={principal}
-                    >
-                      {principal.slice(0, 20)}...{principal.slice(-6)}
+                  {profile?.mobile && (
+                    <p className="text-xs text-muted-foreground/60 font-mono">
+                      +91 {profile.mobile}
                     </p>
                   )}
                 </>
-              ) : (
-                <p className="text-muted-foreground">Not logged in</p>
               )}
             </div>
             <Button
               variant="outline"
               size="sm"
-              onClick={clear}
+              onClick={onLogout}
               className="border-border text-muted-foreground hover:text-loss hover:border-loss flex items-center gap-1.5"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -655,12 +847,16 @@ export function Account() {
           {/* Available balance */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Available Balance</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                Available Balance
+              </p>
               {portfolioLoading ? (
                 <Skeleton className="h-8 w-32" />
               ) : (
                 <p className="text-2xl font-bold font-mono text-foreground">
-                  {portfolio ? formatBalance(portfolio.availableBalance) : "₹0.00"}
+                  {portfolio
+                    ? formatBalance(portfolio.availableBalance)
+                    : "₹0.00"}
                 </p>
               )}
             </div>
@@ -679,14 +875,22 @@ export function Account() {
                 <Zap className="w-3.5 h-3.5 text-gain" />
                 <span className="text-xs font-semibold text-gain">Deposit</span>
               </div>
-              <p className="text-xs text-muted-foreground">Credited <span className="text-gain font-medium">instantly</span></p>
+              <p className="text-xs text-muted-foreground">
+                Credited{" "}
+                <span className="text-gain font-medium">instantly</span>
+              </p>
             </div>
             <div className="bg-gold-muted/30 border border-gold/20 rounded-md p-3">
               <div className="flex items-center gap-1.5 mb-1">
                 <Clock className="w-3.5 h-3.5 text-gold" />
-                <span className="text-xs font-semibold text-gold">Withdrawal</span>
+                <span className="text-xs font-semibold text-gold">
+                  Withdrawal
+                </span>
               </div>
-              <p className="text-xs text-muted-foreground">Processed in <span className="text-gold font-medium">30 min</span></p>
+              <p className="text-xs text-muted-foreground">
+                Processed in{" "}
+                <span className="text-gold font-medium">30 min</span>
+              </p>
             </div>
           </div>
         </CardContent>
@@ -710,25 +914,35 @@ export function Account() {
           ) : portfolio ? (
             <>
               <div className="flex items-center justify-between py-2 border-b border-border">
-                <span className="text-sm text-muted-foreground">Total Portfolio Value</span>
+                <span className="text-sm text-muted-foreground">
+                  Total Portfolio Value
+                </span>
                 <span className="font-mono font-bold text-foreground">
-                  {formatBalance(portfolio.currentValue + portfolio.availableBalance)}
+                  {formatBalance(
+                    portfolio.currentValue + portfolio.availableBalance,
+                  )}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-border">
-                <span className="text-sm text-muted-foreground">Available Balance</span>
+                <span className="text-sm text-muted-foreground">
+                  Available Balance
+                </span>
                 <span className="font-mono font-semibold text-foreground">
                   {formatBalance(portfolio.availableBalance)}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-border">
-                <span className="text-sm text-muted-foreground">Available Margin</span>
+                <span className="text-sm text-muted-foreground">
+                  Available Margin
+                </span>
                 <span className="font-mono font-semibold text-gold">
                   {formatBalance(portfolio.marginAvailable)}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-border">
-                <span className="text-sm text-muted-foreground">Margin Used</span>
+                <span className="text-sm text-muted-foreground">
+                  Margin Used
+                </span>
                 <span className="font-mono font-semibold text-foreground">
                   {formatBalance(portfolio.marginUsed)}
                 </span>
@@ -743,7 +957,9 @@ export function Account() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground text-center py-4">No portfolio data</p>
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No portfolio data
+            </p>
           )}
         </CardContent>
       </Card>
@@ -777,7 +993,9 @@ export function Account() {
           ) : withdrawals.length === 0 ? (
             <div className="text-center py-8">
               <ArrowUpFromLine className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">No withdrawal requests yet</p>
+              <p className="text-sm text-muted-foreground">
+                No withdrawal requests yet
+              </p>
               <p className="text-xs text-muted-foreground/60 mt-1">
                 Your withdrawal history will appear here
               </p>
@@ -798,6 +1016,106 @@ export function Account() {
         </CardContent>
       </Card>
 
+      {/* Deposit History */}
+      <Card className="bg-card border-border shadow-card animate-fade-in-up stagger-5">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+              <ArrowDownToLine className="w-4 h-4" />
+              Deposit History
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => refetchDeposits()}
+              title="Refresh"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {depositsLoading ? (
+            <div className="space-y-3">
+              {[1, 2].map((i) => (
+                <div key={i} className="flex items-center justify-between py-3">
+                  <div className="space-y-1.5">
+                    <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                    <div className="h-3 w-32 bg-muted rounded animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : deposits.length === 0 ? (
+            <div className="text-center py-8">
+              <ArrowDownToLine className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                No deposit requests yet
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Your deposit history will appear here
+              </p>
+            </div>
+          ) : (
+            <div>
+              {deposits.map((dr) => {
+                const requestMs = Number(dr.requestTime / 1_000_000n);
+                const requestDate = new Date(requestMs);
+                const timeStr = Number.isNaN(requestDate.getTime())
+                  ? "—"
+                  : `${requestDate.toLocaleTimeString("en-IN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })} · ${requestDate.toLocaleDateString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                    })}`;
+                return (
+                  <div
+                    key={dr.id}
+                    className="flex items-center justify-between py-3 border-b border-border last:border-0"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-semibold text-foreground">
+                          ₹{dr.amount.toLocaleString("en-IN")}
+                        </span>
+                        {dr.status === DepositStatus.pending && (
+                          <Badge className="bg-gold-muted text-gold border border-gold/20 text-xs">
+                            Pending
+                          </Badge>
+                        )}
+                        {dr.status === DepositStatus.approved && (
+                          <Badge className="bg-gain-muted text-gain border border-gain/20 text-xs flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Approved
+                          </Badge>
+                        )}
+                        {dr.status === DepositStatus.rejected && (
+                          <Badge className="bg-loss-muted text-loss border border-loss/20 text-xs flex items-center gap-1">
+                            <XCircle className="w-3 h-3" />
+                            Rejected
+                          </Badge>
+                        )}
+                        {dr.utrNumber && (
+                          <span className="text-xs text-muted-foreground font-mono">
+                            UTR: {dr.utrNumber}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {timeStr}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Margin info */}
       <Card className="bg-card border-border shadow-card animate-fade-in-up stagger-5">
         <CardHeader className="pb-2">
@@ -811,15 +1129,20 @@ export function Account() {
             <div className="bg-gain-muted/50 rounded-lg p-4 border border-gain/20">
               <div className="flex items-center gap-2 mb-2">
                 <Zap className="w-4 h-4 text-gain" />
-                <span className="text-xs font-semibold text-gain uppercase tracking-wide">Intraday</span>
+                <span className="text-xs font-semibold text-gain uppercase tracking-wide">
+                  Intraday
+                </span>
               </div>
               <p className="text-2xl font-bold font-mono text-gain">500x</p>
               <p className="text-xs text-muted-foreground mt-1">Leverage</p>
               <Separator className="my-2 bg-border" />
               <p className="text-xs text-muted-foreground">
-                Margin required: <span className="text-gain font-mono">0.2%</span>
+                Margin required:{" "}
+                <span className="text-gain font-mono">0.2%</span>
               </p>
-              <p className="text-xs text-muted-foreground">Positions auto-close at day end</p>
+              <p className="text-xs text-muted-foreground">
+                Positions auto-close at day end
+              </p>
             </div>
 
             <div className="bg-gold-muted/50 rounded-lg p-4 border border-gold/20">
@@ -835,7 +1158,9 @@ export function Account() {
               <p className="text-xs text-muted-foreground">
                 Margin required: <span className="text-gold font-mono">1%</span>
               </p>
-              <p className="text-xs text-muted-foreground">Hold positions overnight</p>
+              <p className="text-xs text-muted-foreground">
+                Hold positions overnight
+              </p>
             </div>
           </div>
         </CardContent>
@@ -857,11 +1182,14 @@ export function Account() {
               </div>
               <p className="text-sm text-muted-foreground">
                 Trade stocks, crypto, forex, and commodities with{" "}
-                <span className="text-gain font-semibold">absolutely zero brokerage</span> on all
-                orders.
+                <span className="text-gain font-semibold">
+                  absolutely zero brokerage
+                </span>{" "}
+                on all orders.
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                No hidden charges · No per-trade fees · No account maintenance fees
+                No hidden charges · No per-trade fees · No account maintenance
+                fees
               </p>
             </div>
           </div>
@@ -881,12 +1209,21 @@ export function Account() {
               { label: "NSE Stocks", desc: "Indian equities", icon: "📈" },
               { label: "Crypto", desc: "BTC, ETH & more", icon: "₿" },
               { label: "Forex", desc: "INR pairs", icon: "💱" },
-              { label: "MCX Commodities", desc: "Gold, Oil & more", icon: "🥇" },
+              {
+                label: "MCX Commodities",
+                desc: "Gold, Oil & more",
+                icon: "🥇",
+              },
             ].map(({ label, desc, icon }) => (
-              <div key={label} className="bg-secondary/50 rounded-md p-3 text-center">
+              <div
+                key={label}
+                className="bg-secondary/50 rounded-md p-3 text-center"
+              >
                 <p className="text-lg mb-1">{icon}</p>
                 <p className="text-xs font-semibold text-foreground">{label}</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{desc}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {desc}
+                </p>
               </div>
             ))}
           </div>

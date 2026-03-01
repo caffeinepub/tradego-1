@@ -19,6 +19,20 @@ export const AdminStats = IDL.Record({
   'totalInstruments' : IDL.Nat,
   'totalUsers' : IDL.Nat,
 });
+export const DepositStatus = IDL.Variant({
+  'pending' : IDL.Null,
+  'approved' : IDL.Null,
+  'rejected' : IDL.Null,
+});
+export const Time = IDL.Int;
+export const DepositRequest = IDL.Record({
+  'id' : IDL.Text,
+  'status' : DepositStatus,
+  'user' : IDL.Principal,
+  'utrNumber' : IDL.Opt(IDL.Text),
+  'amount' : IDL.Float64,
+  'requestTime' : Time,
+});
 export const Instrument = IDL.Record({
   'currentPrice' : IDL.Float64,
   'name' : IDL.Text,
@@ -43,7 +57,6 @@ export const OrderType = IDL.Variant({
   'stopLoss' : IDL.Null,
   'market' : IDL.Null,
 });
-export const Time = IDL.Int;
 export const Order = IDL.Record({
   'id' : IDL.Text,
   'status' : OrderStatus,
@@ -55,6 +68,14 @@ export const Order = IDL.Record({
   'timestamp' : Time,
   'quantity' : IDL.Float64,
   'price' : IDL.Float64,
+  'symbol' : IDL.Text,
+});
+export const PositionSummary = IDL.Record({
+  'tradeType' : TradeType,
+  'marginUsed' : IDL.Float64,
+  'quantity' : IDL.Float64,
+  'unrealizedPnL' : IDL.Float64,
+  'avgBuyPrice' : IDL.Float64,
   'symbol' : IDL.Text,
 });
 export const User = IDL.Record({
@@ -84,13 +105,11 @@ export const WithdrawalRequest = IDL.Record({
   'amount' : IDL.Float64,
   'requestTime' : Time,
 });
-export const PositionSummary = IDL.Record({
-  'tradeType' : TradeType,
-  'marginUsed' : IDL.Float64,
-  'quantity' : IDL.Float64,
-  'unrealizedPnL' : IDL.Float64,
-  'avgBuyPrice' : IDL.Float64,
-  'symbol' : IDL.Text,
+export const AppSettings = IDL.Record({
+  'privacyText' : IDL.Text,
+  'termsText' : IDL.Text,
+  'stockLossColor' : IDL.Text,
+  'stockGainColor' : IDL.Text,
 });
 export const PaymentSettings = IDL.Record({
   'qrCodeData' : IDL.Text,
@@ -112,6 +131,15 @@ export const InstrumentUpdate = IDL.Record({
 
 export const idlService = IDL.Service({
   'addToWatchlist' : IDL.Func([IDL.Text], [], []),
+  'adjustUserBalance' : IDL.Func([IDL.Text, IDL.Float64, IDL.Bool], [], []),
+  'adminClosePosition' : IDL.Func([IDL.Principal, IDL.Text], [], []),
+  'adminEditPosition' : IDL.Func(
+      [IDL.Principal, IDL.Text, IDL.Float64, IDL.Float64],
+      [],
+      [],
+    ),
+  'adminResetPassword' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'approveDeposit' : IDL.Func([IDL.Text], [], []),
   'approveWithdrawal' : IDL.Func([IDL.Text], [], []),
   'authenticate' : IDL.Func([IDL.Principal], [IDL.Bool], []),
   'authenticateAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
@@ -124,11 +152,19 @@ export const idlService = IDL.Service({
   'deleteInstrument' : IDL.Func([IDL.Text], [], []),
   'deposit' : IDL.Func([IDL.Float64], [], []),
   'getAdminStats' : IDL.Func([], [AdminStats], []),
+  'getAllDepositRequests' : IDL.Func([], [IDL.Vec(DepositRequest)], []),
   'getAllInstruments' : IDL.Func([], [IDL.Vec(Instrument)], ['query']),
   'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], []),
+  'getAllPositions' : IDL.Func(
+      [],
+      [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Vec(PositionSummary)))],
+      [],
+    ),
   'getAllUsers' : IDL.Func([], [IDL.Vec(IDL.Tuple(IDL.Principal, User))], []),
   'getAllWithdrawalRequests' : IDL.Func([], [IDL.Vec(WithdrawalRequest)], []),
+  'getAppSettings' : IDL.Func([], [AppSettings], ['query']),
   'getAvailableBalance' : IDL.Func([], [IDL.Float64], ['query']),
+  'getDepositRequests' : IDL.Func([], [IDL.Vec(DepositRequest)], ['query']),
   'getInstrumentsByCategory' : IDL.Func(
       [Category],
       [IDL.Vec(Instrument)],
@@ -138,6 +174,8 @@ export const idlService = IDL.Service({
   'getOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
   'getPaymentSettings' : IDL.Func([], [IDL.Opt(PaymentSettings)], ['query']),
   'getPortfolioSummary' : IDL.Func([], [PortfolioSummary], ['query']),
+  'getProfileByToken' : IDL.Func([IDL.Text], [User], ['query']),
+  'getUserByToken' : IDL.Func([IDL.Text], [IDL.Principal, User], ['query']),
   'getUserProfile' : IDL.Func([], [User], ['query']),
   'getWatchlist' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
   'getWithdrawalRequests' : IDL.Func(
@@ -145,15 +183,25 @@ export const idlService = IDL.Service({
       [IDL.Vec(WithdrawalRequest)],
       ['query'],
     ),
+  'isAdminByToken' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'isAdminUser' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
+  'loginWithPassword' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
+  'logoutByToken' : IDL.Func([IDL.Text], [], []),
   'placeOrder' : IDL.Func(
       [IDL.Text, IDL.Float64, IDL.Float64, OrderType, TradeType, Side],
       [IDL.Text],
       [],
     ),
   'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  'registerUserWithPassword' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [],
+      [],
+    ),
+  'rejectDeposit' : IDL.Func([IDL.Text], [], []),
   'rejectWithdrawal' : IDL.Func([IDL.Text], [], []),
   'removeFromWatchlist' : IDL.Func([IDL.Text], [], []),
+  'requestDeposit' : IDL.Func([IDL.Float64], [IDL.Text], []),
   'requestWithdrawal' : IDL.Func(
       [
         IDL.Float64,
@@ -167,6 +215,12 @@ export const idlService = IDL.Service({
       [],
     ),
   'setPaymentSettings' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'submitDepositUtr' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'updateAppSettings' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [],
+      [],
+    ),
   'updateInstrumentPrice' : IDL.Func([InstrumentUpdate], [], []),
 });
 
@@ -183,6 +237,20 @@ export const idlFactory = ({ IDL }) => {
     'totalOrders' : IDL.Nat,
     'totalInstruments' : IDL.Nat,
     'totalUsers' : IDL.Nat,
+  });
+  const DepositStatus = IDL.Variant({
+    'pending' : IDL.Null,
+    'approved' : IDL.Null,
+    'rejected' : IDL.Null,
+  });
+  const Time = IDL.Int;
+  const DepositRequest = IDL.Record({
+    'id' : IDL.Text,
+    'status' : DepositStatus,
+    'user' : IDL.Principal,
+    'utrNumber' : IDL.Opt(IDL.Text),
+    'amount' : IDL.Float64,
+    'requestTime' : Time,
   });
   const Instrument = IDL.Record({
     'currentPrice' : IDL.Float64,
@@ -208,7 +276,6 @@ export const idlFactory = ({ IDL }) => {
     'stopLoss' : IDL.Null,
     'market' : IDL.Null,
   });
-  const Time = IDL.Int;
   const Order = IDL.Record({
     'id' : IDL.Text,
     'status' : OrderStatus,
@@ -220,6 +287,14 @@ export const idlFactory = ({ IDL }) => {
     'timestamp' : Time,
     'quantity' : IDL.Float64,
     'price' : IDL.Float64,
+    'symbol' : IDL.Text,
+  });
+  const PositionSummary = IDL.Record({
+    'tradeType' : TradeType,
+    'marginUsed' : IDL.Float64,
+    'quantity' : IDL.Float64,
+    'unrealizedPnL' : IDL.Float64,
+    'avgBuyPrice' : IDL.Float64,
     'symbol' : IDL.Text,
   });
   const User = IDL.Record({
@@ -246,13 +321,11 @@ export const idlFactory = ({ IDL }) => {
     'amount' : IDL.Float64,
     'requestTime' : Time,
   });
-  const PositionSummary = IDL.Record({
-    'tradeType' : TradeType,
-    'marginUsed' : IDL.Float64,
-    'quantity' : IDL.Float64,
-    'unrealizedPnL' : IDL.Float64,
-    'avgBuyPrice' : IDL.Float64,
-    'symbol' : IDL.Text,
+  const AppSettings = IDL.Record({
+    'privacyText' : IDL.Text,
+    'termsText' : IDL.Text,
+    'stockLossColor' : IDL.Text,
+    'stockGainColor' : IDL.Text,
   });
   const PaymentSettings = IDL.Record({
     'qrCodeData' : IDL.Text,
@@ -274,6 +347,15 @@ export const idlFactory = ({ IDL }) => {
   
   return IDL.Service({
     'addToWatchlist' : IDL.Func([IDL.Text], [], []),
+    'adjustUserBalance' : IDL.Func([IDL.Text, IDL.Float64, IDL.Bool], [], []),
+    'adminClosePosition' : IDL.Func([IDL.Principal, IDL.Text], [], []),
+    'adminEditPosition' : IDL.Func(
+        [IDL.Principal, IDL.Text, IDL.Float64, IDL.Float64],
+        [],
+        [],
+      ),
+    'adminResetPassword' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'approveDeposit' : IDL.Func([IDL.Text], [], []),
     'approveWithdrawal' : IDL.Func([IDL.Text], [], []),
     'authenticate' : IDL.Func([IDL.Principal], [IDL.Bool], []),
     'authenticateAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
@@ -286,11 +368,19 @@ export const idlFactory = ({ IDL }) => {
     'deleteInstrument' : IDL.Func([IDL.Text], [], []),
     'deposit' : IDL.Func([IDL.Float64], [], []),
     'getAdminStats' : IDL.Func([], [AdminStats], []),
+    'getAllDepositRequests' : IDL.Func([], [IDL.Vec(DepositRequest)], []),
     'getAllInstruments' : IDL.Func([], [IDL.Vec(Instrument)], ['query']),
     'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], []),
+    'getAllPositions' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Vec(PositionSummary)))],
+        [],
+      ),
     'getAllUsers' : IDL.Func([], [IDL.Vec(IDL.Tuple(IDL.Principal, User))], []),
     'getAllWithdrawalRequests' : IDL.Func([], [IDL.Vec(WithdrawalRequest)], []),
+    'getAppSettings' : IDL.Func([], [AppSettings], ['query']),
     'getAvailableBalance' : IDL.Func([], [IDL.Float64], ['query']),
+    'getDepositRequests' : IDL.Func([], [IDL.Vec(DepositRequest)], ['query']),
     'getInstrumentsByCategory' : IDL.Func(
         [Category],
         [IDL.Vec(Instrument)],
@@ -300,6 +390,8 @@ export const idlFactory = ({ IDL }) => {
     'getOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
     'getPaymentSettings' : IDL.Func([], [IDL.Opt(PaymentSettings)], ['query']),
     'getPortfolioSummary' : IDL.Func([], [PortfolioSummary], ['query']),
+    'getProfileByToken' : IDL.Func([IDL.Text], [User], ['query']),
+    'getUserByToken' : IDL.Func([IDL.Text], [IDL.Principal, User], ['query']),
     'getUserProfile' : IDL.Func([], [User], ['query']),
     'getWatchlist' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
     'getWithdrawalRequests' : IDL.Func(
@@ -307,15 +399,25 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(WithdrawalRequest)],
         ['query'],
       ),
+    'isAdminByToken' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'isAdminUser' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
+    'loginWithPassword' : IDL.Func([IDL.Text, IDL.Text], [IDL.Text], []),
+    'logoutByToken' : IDL.Func([IDL.Text], [], []),
     'placeOrder' : IDL.Func(
         [IDL.Text, IDL.Float64, IDL.Float64, OrderType, TradeType, Side],
         [IDL.Text],
         [],
       ),
     'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+    'registerUserWithPassword' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [],
+        [],
+      ),
+    'rejectDeposit' : IDL.Func([IDL.Text], [], []),
     'rejectWithdrawal' : IDL.Func([IDL.Text], [], []),
     'removeFromWatchlist' : IDL.Func([IDL.Text], [], []),
+    'requestDeposit' : IDL.Func([IDL.Float64], [IDL.Text], []),
     'requestWithdrawal' : IDL.Func(
         [
           IDL.Float64,
@@ -329,6 +431,12 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'setPaymentSettings' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'submitDepositUtr' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'updateAppSettings' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [],
+        [],
+      ),
     'updateInstrumentPrice' : IDL.Func([InstrumentUpdate], [], []),
   });
 };

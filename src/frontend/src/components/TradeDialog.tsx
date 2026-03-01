@@ -1,20 +1,25 @@
-import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Instrument, OrderType, TradeType, Side } from "../backend.d";
-import { LivePrice } from "../hooks/useLivePrices";
-import { formatPrice, formatBalance, calculateMargin, getLeverage } from "../utils/format";
+import { type Instrument, OrderType, Side, TradeType } from "../backend.d";
+import type { LivePrice } from "../hooks/useLivePrices";
 import { usePlaceOrder } from "../hooks/useQueries";
+import {
+  calculateMargin,
+  formatBalance,
+  formatPrice,
+  getLeverage,
+} from "../utils/format";
 
 interface TradeDialogProps {
   instrument: Instrument | null;
@@ -23,7 +28,12 @@ interface TradeDialogProps {
   onClose: () => void;
 }
 
-export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialogProps) {
+export function TradeDialog({
+  instrument,
+  livePrice,
+  open,
+  onClose,
+}: TradeDialogProps) {
   const [side, setSide] = useState<Side>(Side.buy);
   const [tradeType, setTradeType] = useState<TradeType>(TradeType.intraday);
   const [orderType, setOrderType] = useState<OrderType>(OrderType.market);
@@ -35,8 +45,11 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
   if (!instrument) return null;
 
   const currentPrice = livePrice?.price ?? instrument.currentPrice;
-  const execPrice = orderType === OrderType.market ? currentPrice : (parseFloat(limitPrice) || currentPrice);
-  const qty = parseFloat(quantity) || 0;
+  const execPrice =
+    orderType === OrderType.market
+      ? currentPrice
+      : Number.parseFloat(limitPrice) || currentPrice;
+  const qty = Number.parseFloat(quantity) || 0;
   const orderValue = execPrice * qty;
   const margin = calculateMargin(execPrice, qty, tradeType);
   const leverage = getLeverage(tradeType);
@@ -46,7 +59,10 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
       toast.error("Enter a valid quantity");
       return;
     }
-    if (orderType !== OrderType.market && (!limitPrice || parseFloat(limitPrice) <= 0)) {
+    if (
+      orderType !== OrderType.market &&
+      (!limitPrice || Number.parseFloat(limitPrice) <= 0)
+    ) {
       toast.error("Enter a valid price for limit/stop-loss order");
       return;
     }
@@ -62,7 +78,7 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
       });
       toast.success(`Order placed! ID: ${String(orderId).slice(0, 8)}...`);
       onClose();
-    } catch (err) {
+    } catch (_err) {
       toast.error("Failed to place order. Check your margin balance.");
     }
   };
@@ -74,8 +90,13 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
       <DialogContent className="bg-card border-border max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <span className="font-mono font-bold text-foreground">{instrument.symbol}</span>
-            <Badge variant="outline" className="text-muted-foreground border-border text-xs capitalize">
+            <span className="font-mono font-bold text-foreground">
+              {instrument.symbol}
+            </span>
+            <Badge
+              variant="outline"
+              className="text-muted-foreground border-border text-xs capitalize"
+            >
               {instrument.category}
             </Badge>
           </DialogTitle>
@@ -84,7 +105,9 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
 
         {/* Current price */}
         <div className="bg-secondary/50 rounded-md p-3 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground uppercase tracking-wide">Market Price</span>
+          <span className="text-xs text-muted-foreground uppercase tracking-wide">
+            Market Price
+          </span>
           <span className="font-mono font-bold text-lg text-foreground">
             {formatPrice(currentPrice, instrument.category)}
           </span>
@@ -98,7 +121,9 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
               onClick={() => setSide(Side.buy)}
               className={[
                 "py-2 rounded text-sm font-bold transition-all",
-                isBuy ? "bg-gain text-background glow-gain" : "text-muted-foreground hover:text-foreground",
+                isBuy
+                  ? "bg-gain text-background glow-gain"
+                  : "text-muted-foreground hover:text-foreground",
               ].join(" ")}
             >
               BUY
@@ -108,7 +133,9 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
               onClick={() => setSide(Side.sell)}
               className={[
                 "py-2 rounded text-sm font-bold transition-all",
-                !isBuy ? "bg-loss text-foreground glow-loss" : "text-muted-foreground hover:text-foreground",
+                !isBuy
+                  ? "bg-loss text-foreground glow-loss"
+                  : "text-muted-foreground hover:text-foreground",
               ].join(" ")}
             >
               SELL
@@ -117,14 +144,18 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
 
           {/* INTRADAY / CARRY FORWARD */}
           <div>
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block">Trade Type</Label>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block">
+              Trade Type
+            </Label>
             <div className="grid grid-cols-2 gap-1.5 p-1 bg-secondary/50 rounded-md">
               <button
                 type="button"
                 onClick={() => setTradeType(TradeType.intraday)}
                 className={[
                   "py-1.5 rounded text-xs font-semibold transition-all",
-                  tradeType === TradeType.intraday ? "bg-gain-muted text-gain border border-gain/30" : "text-muted-foreground hover:text-foreground",
+                  tradeType === TradeType.intraday
+                    ? "bg-gain-muted text-gain border border-gain/30"
+                    : "text-muted-foreground hover:text-foreground",
                 ].join(" ")}
               >
                 INTRADAY
@@ -135,7 +166,9 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
                 onClick={() => setTradeType(TradeType.carryForward)}
                 className={[
                   "py-1.5 rounded text-xs font-semibold transition-all",
-                  tradeType === TradeType.carryForward ? "bg-gold-muted text-gold border border-gold/30" : "text-muted-foreground hover:text-foreground",
+                  tradeType === TradeType.carryForward
+                    ? "bg-gold-muted text-gold border border-gold/30"
+                    : "text-muted-foreground hover:text-foreground",
                 ].join(" ")}
               >
                 CARRY FWD
@@ -146,20 +179,26 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
 
           {/* Order Type */}
           <div>
-            <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block">Order Type</Label>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block">
+              Order Type
+            </Label>
             <div className="grid grid-cols-3 gap-1 p-1 bg-secondary/50 rounded-md">
-              {([
-                { value: OrderType.market, label: "MKT" },
-                { value: OrderType.limit, label: "LMT" },
-                { value: OrderType.stopLoss, label: "SL" },
-              ] as const).map(({ value, label }) => (
+              {(
+                [
+                  { value: OrderType.market, label: "MKT" },
+                  { value: OrderType.limit, label: "LMT" },
+                  { value: OrderType.stopLoss, label: "SL" },
+                ] as const
+              ).map(({ value, label }) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setOrderType(value)}
                   className={[
                     "py-1.5 rounded text-xs font-semibold transition-all",
-                    orderType === value ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+                    orderType === value
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
                   ].join(" ")}
                 >
                   {label}
@@ -170,7 +209,10 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
 
           {/* Quantity */}
           <div>
-            <Label htmlFor="quantity" className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block">
+            <Label
+              htmlFor="quantity"
+              className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block"
+            >
               Quantity (Lots)
             </Label>
             <Input
@@ -187,11 +229,18 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
           {/* Price (for limit/stop-loss) */}
           {orderType !== OrderType.market && (
             <div>
-              <Label htmlFor="limitPrice" className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block">
-                {orderType === OrderType.limit ? "Limit Price" : "Stop-Loss Price"}
+              <Label
+                htmlFor="limitPrice"
+                className="text-xs text-muted-foreground uppercase tracking-wide mb-1.5 block"
+              >
+                {orderType === OrderType.limit
+                  ? "Limit Price"
+                  : "Stop-Loss Price"}
               </Label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">₹</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">
+                  ₹
+                </span>
                 <Input
                   id="limitPrice"
                   type="number"
@@ -209,11 +258,15 @@ export function TradeDialog({ instrument, livePrice, open, onClose }: TradeDialo
           <div className="bg-secondary/30 rounded-md p-3 space-y-1.5 text-xs font-mono">
             <div className="flex justify-between text-muted-foreground">
               <span>Order Value</span>
-              <span className="text-foreground">{formatBalance(orderValue)}</span>
+              <span className="text-foreground">
+                {formatBalance(orderValue)}
+              </span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Required Margin ({leverage}x)</span>
-              <span className="text-gold font-semibold">{formatBalance(margin)}</span>
+              <span className="text-gold font-semibold">
+                {formatBalance(margin)}
+              </span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Leverage</span>

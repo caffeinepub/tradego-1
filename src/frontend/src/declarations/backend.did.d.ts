@@ -15,10 +15,27 @@ export interface AdminStats {
   'totalInstruments' : bigint,
   'totalUsers' : bigint,
 }
+export interface AppSettings {
+  'privacyText' : string,
+  'termsText' : string,
+  'stockLossColor' : string,
+  'stockGainColor' : string,
+}
 export type Category = { 'forex' : null } |
   { 'stock' : null } |
   { 'crypto' : null } |
   { 'commodity' : null };
+export interface DepositRequest {
+  'id' : string,
+  'status' : DepositStatus,
+  'user' : Principal,
+  'utrNumber' : [] | [string],
+  'amount' : number,
+  'requestTime' : Time,
+}
+export type DepositStatus = { 'pending' : null } |
+  { 'approved' : null } |
+  { 'rejected' : null };
 export interface Instrument {
   'currentPrice' : number,
   'name' : string,
@@ -99,6 +116,14 @@ export type WithdrawalStatus = { 'pending' : null } |
   { 'rejected' : null };
 export interface _SERVICE {
   'addToWatchlist' : ActorMethod<[string], undefined>,
+  'adjustUserBalance' : ActorMethod<[string, number, boolean], undefined>,
+  'adminClosePosition' : ActorMethod<[Principal, string], undefined>,
+  'adminEditPosition' : ActorMethod<
+    [Principal, string, number, number],
+    undefined
+  >,
+  'adminResetPassword' : ActorMethod<[string, string], undefined>,
+  'approveDeposit' : ActorMethod<[string], undefined>,
   'approveWithdrawal' : ActorMethod<[string], undefined>,
   'authenticate' : ActorMethod<[Principal], boolean>,
   'authenticateAdmin' : ActorMethod<[Principal], boolean>,
@@ -110,27 +135,45 @@ export interface _SERVICE {
   'deleteInstrument' : ActorMethod<[string], undefined>,
   'deposit' : ActorMethod<[number], undefined>,
   'getAdminStats' : ActorMethod<[], AdminStats>,
+  'getAllDepositRequests' : ActorMethod<[], Array<DepositRequest>>,
   'getAllInstruments' : ActorMethod<[], Array<Instrument>>,
   'getAllOrders' : ActorMethod<[], Array<Order>>,
+  'getAllPositions' : ActorMethod<
+    [],
+    Array<[Principal, Array<PositionSummary>]>
+  >,
   'getAllUsers' : ActorMethod<[], Array<[Principal, User]>>,
   'getAllWithdrawalRequests' : ActorMethod<[], Array<WithdrawalRequest>>,
+  'getAppSettings' : ActorMethod<[], AppSettings>,
   'getAvailableBalance' : ActorMethod<[], number>,
+  'getDepositRequests' : ActorMethod<[], Array<DepositRequest>>,
   'getInstrumentsByCategory' : ActorMethod<[Category], Array<Instrument>>,
   'getOpenPositions' : ActorMethod<[], Array<PositionSummary>>,
   'getOrders' : ActorMethod<[], Array<Order>>,
   'getPaymentSettings' : ActorMethod<[], [] | [PaymentSettings]>,
   'getPortfolioSummary' : ActorMethod<[], PortfolioSummary>,
+  'getProfileByToken' : ActorMethod<[string], User>,
+  'getUserByToken' : ActorMethod<[string], [Principal, User]>,
   'getUserProfile' : ActorMethod<[], User>,
   'getWatchlist' : ActorMethod<[], Array<string>>,
   'getWithdrawalRequests' : ActorMethod<[], Array<WithdrawalRequest>>,
+  'isAdminByToken' : ActorMethod<[string], boolean>,
   'isAdminUser' : ActorMethod<[Principal], boolean>,
+  'loginWithPassword' : ActorMethod<[string, string], string>,
+  'logoutByToken' : ActorMethod<[string], undefined>,
   'placeOrder' : ActorMethod<
     [string, number, number, OrderType, TradeType, Side],
     string
   >,
   'registerUser' : ActorMethod<[string, string, string], undefined>,
+  'registerUserWithPassword' : ActorMethod<
+    [string, string, string, string],
+    undefined
+  >,
+  'rejectDeposit' : ActorMethod<[string], undefined>,
   'rejectWithdrawal' : ActorMethod<[string], undefined>,
   'removeFromWatchlist' : ActorMethod<[string], undefined>,
+  'requestDeposit' : ActorMethod<[number], string>,
   'requestWithdrawal' : ActorMethod<
     [
       number,
@@ -143,6 +186,11 @@ export interface _SERVICE {
     string
   >,
   'setPaymentSettings' : ActorMethod<[string, string], undefined>,
+  'submitDepositUtr' : ActorMethod<[string, string], undefined>,
+  'updateAppSettings' : ActorMethod<
+    [string, string, string, string],
+    undefined
+  >,
   'updateInstrumentPrice' : ActorMethod<[InstrumentUpdate], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;

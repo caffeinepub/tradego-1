@@ -1,12 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Zap, Activity } from "lucide-react";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { Activity, Zap } from "lucide-react";
 
 interface HeaderProps {
   userName?: string;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  onLogout: () => void;
 }
 
 const NAV_TABS = [
@@ -14,12 +14,16 @@ const NAV_TABS = [
   { id: "markets", label: "Markets" },
   { id: "trade", label: "Trade" },
   { id: "positions", label: "Positions" },
+  { id: "optionchain", label: "Option Chain" },
   { id: "account", label: "Account" },
 ];
 
-export function Header({ userName, activeTab, onTabChange }: HeaderProps) {
-  const { clear } = useInternetIdentity();
-
+export function Header({
+  userName,
+  activeTab,
+  onTabChange,
+  onLogout,
+}: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 bg-card border-b border-border">
       {/* Top bar */}
@@ -32,7 +36,9 @@ export function Header({ userName, activeTab, onTabChange }: HeaderProps) {
             className="w-8 h-8 object-contain"
           />
           <div className="flex flex-col">
-            <span className="text-base font-bold leading-tight gradient-brand tracking-tight">TradeGo.1</span>
+            <span className="text-base font-bold leading-tight gradient-brand tracking-tight">
+              TradeGo.1
+            </span>
             <span className="text-[10px] text-muted-foreground font-mono tracking-widest uppercase leading-tight hidden sm:block">
               Zero Brokerage
             </span>
@@ -70,7 +76,7 @@ export function Header({ userName, activeTab, onTabChange }: HeaderProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={clear}
+            onClick={onLogout}
             className="text-xs text-muted-foreground hover:text-foreground h-7 px-2"
           >
             Logout

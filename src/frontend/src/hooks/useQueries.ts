@@ -1,6 +1,12 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+  Category,
+  OrderType,
+  Side,
+  TradeType,
+  WithdrawalMethod,
+} from "../backend.d";
 import { useActor } from "./useActor";
-import { Category, OrderType, TradeType, Side, WithdrawalMethod } from "../backend.d";
 
 export function useGetAllInstruments() {
   const { actor, isFetching } = useActor();
@@ -115,7 +121,11 @@ export function useRegisterUser() {
   const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ name, email, mobile }: { name: string; email: string; mobile: string }) => {
+    mutationFn: async ({
+      name,
+      email,
+      mobile,
+    }: { name: string; email: string; mobile: string }) => {
       if (!actor) throw new Error("No actor");
       await actor.registerUser(name, email, mobile);
     },
@@ -167,7 +177,7 @@ export function useRequestWithdrawal() {
         upiId ?? null,
         bankName ?? null,
         accountNumber ?? null,
-        ifscCode ?? null
+        ifscCode ?? null,
       );
     },
     onSuccess: () => {
@@ -194,7 +204,10 @@ export function useSetPaymentSettings() {
   const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ upiId, qrCodeData }: { upiId: string; qrCodeData: string }) => {
+    mutationFn: async ({
+      upiId,
+      qrCodeData,
+    }: { upiId: string; qrCodeData: string }) => {
       if (!actor) throw new Error("No actor");
       return actor.setPaymentSettings(upiId, qrCodeData);
     },
@@ -270,7 +283,12 @@ export function usePlaceOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      symbol, quantity, price, orderType, tradeType, side
+      symbol,
+      quantity,
+      price,
+      orderType,
+      tradeType,
+      side,
     }: {
       symbol: string;
       quantity: number;
@@ -280,7 +298,14 @@ export function usePlaceOrder() {
       side: Side;
     }) => {
       if (!actor) throw new Error("No actor");
-      return actor.placeOrder(symbol, quantity, price, orderType, tradeType, side);
+      return actor.placeOrder(
+        symbol,
+        quantity,
+        price,
+        orderType,
+        tradeType,
+        side,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio"] });
@@ -294,7 +319,10 @@ export function useClosePosition() {
   const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ symbol, quantity }: { symbol: string; quantity: number }) => {
+    mutationFn: async ({
+      symbol,
+      quantity,
+    }: { symbol: string; quantity: number }) => {
       if (!actor) throw new Error("No actor");
       return actor.closePosition(symbol, quantity);
     },
@@ -339,7 +367,11 @@ export function useCreateInstrument() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      symbol, name, category, currentPrice, previousClose
+      symbol,
+      name,
+      category,
+      currentPrice,
+      previousClose,
     }: {
       symbol: string;
       name: string;
@@ -348,10 +380,107 @@ export function useCreateInstrument() {
       previousClose: number;
     }) => {
       if (!actor) throw new Error("No actor");
-      return actor.createInstrument(symbol, name, category, currentPrice, previousClose);
+      return actor.createInstrument(
+        symbol,
+        name,
+        category,
+        currentPrice,
+        previousClose,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instruments"] });
+    },
+  });
+}
+
+export function useRequestDeposit() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (amount: number) => {
+      if (!actor) throw new Error("No actor");
+      return actor.requestDeposit(amount);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
+    },
+  });
+}
+
+export function useSubmitDepositUtr() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      requestId,
+      utrNumber,
+    }: { requestId: string; utrNumber: string }) => {
+      if (!actor) throw new Error("No actor");
+      return actor.submitDepositUtr(requestId, utrNumber);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["deposits"] });
+    },
+  });
+}
+
+export function useGetDepositRequests() {
+  const { actor, isFetching } = useActor();
+  return useQuery({
+    queryKey: ["deposits"],
+    queryFn: async () => {
+      if (!actor) return [];
+      try {
+        return await actor.getDepositRequests();
+      } catch {
+        return [];
+      }
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 10_000,
+  });
+}
+
+export function useGetAllDepositRequests() {
+  const { actor, isFetching } = useActor();
+  return useQuery({
+    queryKey: ["adminDeposits"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getAllDepositRequests();
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useApproveDeposit() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (requestId: string) => {
+      if (!actor) throw new Error("No actor");
+      return actor.approveDeposit(requestId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminDeposits"] });
+      queryClient.invalidateQueries({ queryKey: ["adminUsers"] });
+    },
+  });
+}
+
+export function useRejectDeposit() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (requestId: string) => {
+      if (!actor) throw new Error("No actor");
+      return actor.rejectDeposit(requestId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminDeposits"] });
     },
   });
 }

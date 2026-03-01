@@ -1,5 +1,5 @@
-import Map "mo:core/Map";
 import Array "mo:core/Array";
+import Map "mo:core/Map";
 import Set "mo:core/Set";
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
@@ -9,10 +9,9 @@ import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 import Principal "mo:core/Principal";
 import Float "mo:core/Float";
-import Migration "migration";
 
-// Ensure migration runs on upgrades or reinstallation
-(with migration = Migration.run)
+
+
 actor {
   // TYPES
   public type Category = { #stock; #crypto; #forex; #commodity };
@@ -22,6 +21,17 @@ actor {
   public type OrderStatus = { #pending; #executed; #cancelled; #rejected };
   public type WithdrawalStatus = { #pending; #approved; #rejected };
   public type WithdrawalMethod = { #upi; #bank };
+
+  // NEW Deposit Types
+  public type DepositStatus = { #pending; #approved; #rejected };
+  public type DepositRequest = {
+    id : Text;
+    user : Principal;
+    amount : Float;
+    utrNumber : ?Text;
+    status : DepositStatus;
+    requestTime : Time.Time;
+  };
 
   public type Instrument = {
     symbol : Text;
@@ -79,6 +89,14 @@ actor {
     tradeType : TradeType;
     marginUsed : Float;
     unrealizedPnL : Float;
+  };
+
+  // App Settings
+  public type AppSettings = {
+    termsText : Text;
+    privacyText : Text;
+    stockGainColor : Text;
+    stockLossColor : Text;
   };
 
   public type AdminStats = {
@@ -159,8 +177,19 @@ actor {
   // WITHDRAWAL REQUESTS MAP
   let withdrawalRequestsMap = Map.empty<Text, WithdrawalRequest>();
 
+  // DEPOSIT REQUESTS MAP (NEW)
+  let depositRequestsMap = Map.empty<Text, DepositRequest>();
+
   // PAYMENT SETTINGS (admin managed)
   var paymentSettings : ?PaymentSettings = null;
+
+  // AUTH MAPS
+  let passwordsMap = Map.empty<Text, Text>(); // email -> plain text password
+  let sessionsMap = Map.empty<Text, Principal>(); // token -> principal
+  let emailToPrincipalMap = Map.empty<Text, Principal>(); // email -> principal
+
+  // App Settings (admin managed)
+  var appSettings : ?AppSettings = null;
 
   // HELPER FUNCTIONS
 
@@ -240,11 +269,13 @@ actor {
     filtered.toArray();
   };
 
-  public shared ({ caller }) func registerUser(name : Text, email : Text, mobile : Text) : async () {
+  // NEW registerUserWithPassword (called by old registerUser with empty password)
+  public shared ({ caller }) func registerUserWithPassword(name : Text, email : Text, mobile : Text, password : Text) : async () {
     if (usersMap.containsKey(caller)) { Runtime.trap("User already registered") };
     if (name.trim(#char ' ').size() == 0 or email.trim(#char ' ').size() == 0 or mobile.trim(#char ' ').size() == 0) {
       Runtime.trap("Name, email, and mobile cannot be empty");
     };
+
     let user : User = {
       name;
       email;
@@ -254,139 +285,14 @@ actor {
     usersMap.add(caller, user);
     watchlistsMap.add(caller, Set.empty<Text>());
     positionsMap.add(caller, Map.empty<Text, Position>());
+    // Handle password for new user
+    emailToPrincipalMap.add(email, caller);
+    passwordsMap.add(email, password);
   };
 
-  public shared ({ caller }) func deposit(amount : Float) : async () {
-    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
-    if (amount < 500.0) { Runtime.trap("Minimum deposit is 500") };
-    switch (usersMap.get(caller)) {
-      case (null) { Runtime.trap("User not found") };
-      case (?user) {
-        let updatedUser : User = {
-          name = user.name;
-          email = user.email;
-          mobile = user.mobile;
-          balance = user.balance + amount;
-        };
-        usersMap.add(caller, updatedUser);
-      };
-    };
-  };
-
-  public shared ({ caller }) func requestWithdrawal(
-    amount : Float,
-    withdrawalMethod : WithdrawalMethod,
-    upiId : ?Text,
-    bankName : ?Text,
-    accountNumber : ?Text,
-    ifscCode : ?Text
-  ) : async Text {
-    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
-    if (amount < 500.0) { Runtime.trap("Minimum withdrawal is 500") };
-    switch (usersMap.get(caller)) {
-      case (null) { Runtime.trap("User not found") };
-      case (?user) {
-        if (user.balance < amount) { Runtime.trap("Insufficient balance") };
-        let requestId = "wr-" # Time.now().toText();
-        let withdrawalRequest : WithdrawalRequest = {
-          id = requestId;
-          user = caller;
-          amount;
-          status = #pending;
-          requestTime = Time.now();
-          withdrawalMethod;
-          upiId;
-          bankName;
-          accountNumber;
-          ifscCode;
-        };
-        withdrawalRequestsMap.add(requestId, withdrawalRequest);
-        let updatedUser : User = {
-          name = user.name;
-          email = user.email;
-          mobile = user.mobile;
-          balance = user.balance - amount;
-        };
-        usersMap.add(caller, updatedUser);
-        requestId;
-      };
-    };
-  };
-
-  public query ({ caller }) func getWithdrawalRequests() : async [WithdrawalRequest] {
-    let filtered = withdrawalRequestsMap.values().filter(
-      func(request) { request.user == caller }
-    );
-    filtered.toArray();
-  };
-
-  public shared ({ caller }) func getAllWithdrawalRequests() : async [WithdrawalRequest] {
-    if (not (await isAdminUser(caller))) {
-      Runtime.trap("Only admin can access this function");
-    };
-    withdrawalRequestsMap.values().toArray();
-  };
-
-  public shared ({ caller }) func approveWithdrawal(requestId : Text) : async () {
-    if (not (await isAdminUser(caller))) {
-      Runtime.trap("Only admin can access this function");
-    };
-    switch (withdrawalRequestsMap.get(requestId)) {
-      case (null) { Runtime.trap("Withdrawal request not found") };
-      case (?request) {
-        if (request.status != #pending) { Runtime.trap("Only pending requests can be approved") };
-        let approvedRequest : WithdrawalRequest = {
-          id = request.id;
-          user = request.user;
-          amount = request.amount;
-          status = #approved;
-          requestTime = request.requestTime;
-          withdrawalMethod = request.withdrawalMethod;
-          upiId = request.upiId;
-          bankName = request.bankName;
-          accountNumber = request.accountNumber;
-          ifscCode = request.ifscCode;
-        };
-        withdrawalRequestsMap.add(requestId, approvedRequest);
-      };
-    };
-  };
-
-  public shared ({ caller }) func rejectWithdrawal(requestId : Text) : async () {
-    if (not (await isAdminUser(caller))) {
-      Runtime.trap("Only admin can access this function");
-    };
-    switch (withdrawalRequestsMap.get(requestId)) {
-      case (null) { Runtime.trap("Withdrawal request not found") };
-      case (?request) {
-        if (request.status != #pending) { Runtime.trap("Only pending requests can be rejected") };
-        let rejectedRequest : WithdrawalRequest = {
-          id = request.id;
-          user = request.user;
-          amount = request.amount;
-          status = #rejected;
-          requestTime = request.requestTime;
-          withdrawalMethod = request.withdrawalMethod;
-          upiId = request.upiId;
-          bankName = request.bankName;
-          accountNumber = request.accountNumber;
-          ifscCode = request.ifscCode;
-        };
-        withdrawalRequestsMap.add(requestId, rejectedRequest);
-        switch (usersMap.get(request.user)) {
-          case (null) { Runtime.trap("User not found") };
-          case (?user) {
-            let updatedUser : User = {
-              name = user.name;
-              email = user.email;
-              mobile = user.mobile;
-              balance = user.balance + request.amount;
-            };
-            usersMap.add(request.user, updatedUser);
-          };
-        };
-      };
-    };
+  // Legacy support for old frontend (calls new registerUserWithPassword with empty password)
+  public shared ({ caller }) func registerUser(name : Text, email : Text, mobile : Text) : async () {
+    await registerUserWithPassword(name, email, mobile, "");
   };
 
   public query ({ caller }) func getUserProfile() : async User {
@@ -794,5 +700,490 @@ actor {
     };
     instrumentsMap.remove(symbol);
   };
-};
 
+  // LEGACY DEPOSIT (for backwards compatibility)
+  public shared ({ caller }) func deposit(amount : Float) : async () {
+    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
+    if (amount < 500.0) { Runtime.trap("Minimum deposit is 500") };
+    switch (usersMap.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        let updatedUser : User = {
+          name = user.name;
+          email = user.email;
+          mobile = user.mobile;
+          balance = user.balance + amount;
+        };
+        usersMap.add(caller, updatedUser);
+      };
+    };
+  };
+
+  // NEW DEPOSIT REQUEST FLOW
+  public shared ({ caller }) func requestDeposit(amount : Float) : async Text {
+    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
+    if (amount < 500.0) { Runtime.trap("Minimum deposit is 500") };
+
+    let requestId = "dr-" # Time.now().toText();
+    let depositRequest : DepositRequest = {
+      id = requestId;
+      user = caller;
+      amount;
+      utrNumber = null;
+      status = #pending;
+      requestTime = Time.now();
+    };
+
+    depositRequestsMap.add(requestId, depositRequest);
+    requestId;
+  };
+
+  public shared ({ caller }) func submitDepositUtr(requestId : Text, utrNumber : Text) : async () {
+    switch (depositRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Deposit request not found") };
+      case (?request) {
+        if (request.user != caller) {
+          Runtime.trap("Caller does not own this deposit request");
+        };
+        if (request.status != #pending) {
+          Runtime.trap("Can only submit UTR for pending requests");
+        };
+
+        let updatedRequest : DepositRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          utrNumber = ?utrNumber;
+          status = #pending;
+          requestTime = request.requestTime;
+        };
+        depositRequestsMap.add(requestId, updatedRequest);
+      };
+    };
+  };
+
+  public query ({ caller }) func getDepositRequests() : async [DepositRequest] {
+    let filtered = depositRequestsMap.values().filter(
+      func(request) { request.user == caller }
+    );
+    filtered.toArray();
+  };
+
+  public shared ({ caller }) func getAllDepositRequests() : async [DepositRequest] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    depositRequestsMap.values().toArray();
+  };
+
+  public shared ({ caller }) func approveDeposit(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (depositRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Deposit request not found") };
+      case (?request) {
+        if (request.status != #pending) {
+          Runtime.trap("Only pending requests can be approved");
+        };
+
+        let approvedRequest : DepositRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          utrNumber = request.utrNumber;
+          status = #approved;
+          requestTime = request.requestTime;
+        };
+        depositRequestsMap.add(requestId, approvedRequest);
+
+        switch (usersMap.get(request.user)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance + request.amount;
+            };
+            usersMap.add(request.user, updatedUser);
+          };
+        };
+      };
+    };
+  };
+
+  public shared ({ caller }) func rejectDeposit(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (depositRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Deposit request not found") };
+      case (?request) {
+        if (request.status != #pending) {
+          Runtime.trap("Only pending requests can be rejected");
+        };
+
+        let rejectedRequest : DepositRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          utrNumber = request.utrNumber;
+          status = #rejected;
+          requestTime = request.requestTime;
+        };
+        depositRequestsMap.add(requestId, rejectedRequest);
+      };
+    };
+  };
+
+  public shared ({ caller }) func requestWithdrawal(
+    amount : Float,
+    withdrawalMethod : WithdrawalMethod,
+    upiId : ?Text,
+    bankName : ?Text,
+    accountNumber : ?Text,
+    ifscCode : ?Text
+  ) : async Text {
+    if (not usersMap.containsKey(caller)) { Runtime.trap("User does not exist") };
+    if (amount < 500.0) { Runtime.trap("Minimum withdrawal is 500") };
+    switch (usersMap.get(caller)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        if (user.balance < amount) { Runtime.trap("Insufficient balance") };
+        let requestId = "wr-" # Time.now().toText();
+        let withdrawalRequest : WithdrawalRequest = {
+          id = requestId;
+          user = caller;
+          amount;
+          status = #pending;
+          requestTime = Time.now();
+          withdrawalMethod;
+          upiId;
+          bankName;
+          accountNumber;
+          ifscCode;
+        };
+        withdrawalRequestsMap.add(requestId, withdrawalRequest);
+        let updatedUser : User = {
+          name = user.name;
+          email = user.email;
+          mobile = user.mobile;
+          balance = user.balance - amount;
+        };
+        usersMap.add(caller, updatedUser);
+        requestId;
+      };
+    };
+  };
+
+  public query ({ caller }) func getWithdrawalRequests() : async [WithdrawalRequest] {
+    let filtered = withdrawalRequestsMap.values().filter(
+      func(request) { request.user == caller }
+    );
+    filtered.toArray();
+  };
+
+  public shared ({ caller }) func getAllWithdrawalRequests() : async [WithdrawalRequest] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    withdrawalRequestsMap.values().toArray();
+  };
+
+  public shared ({ caller }) func approveWithdrawal(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (withdrawalRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Withdrawal request not found") };
+      case (?request) {
+        if (request.status != #pending) { Runtime.trap("Only pending requests can be approved") };
+        let approvedRequest : WithdrawalRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          status = #approved;
+          requestTime = request.requestTime;
+          withdrawalMethod = request.withdrawalMethod;
+          upiId = request.upiId;
+          bankName = request.bankName;
+          accountNumber = request.accountNumber;
+          ifscCode = request.ifscCode;
+        };
+        withdrawalRequestsMap.add(requestId, approvedRequest);
+      };
+    };
+  };
+
+  public shared ({ caller }) func rejectWithdrawal(requestId : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    switch (withdrawalRequestsMap.get(requestId)) {
+      case (null) { Runtime.trap("Withdrawal request not found") };
+      case (?request) {
+        if (request.status != #pending) { Runtime.trap("Only pending requests can be rejected") };
+        let rejectedRequest : WithdrawalRequest = {
+          id = request.id;
+          user = request.user;
+          amount = request.amount;
+          status = #rejected;
+          requestTime = request.requestTime;
+          withdrawalMethod = request.withdrawalMethod;
+          upiId = request.upiId;
+          bankName = request.bankName;
+          accountNumber = request.accountNumber;
+          ifscCode = request.ifscCode;
+        };
+        withdrawalRequestsMap.add(requestId, rejectedRequest);
+        switch (usersMap.get(request.user)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance + request.amount;
+            };
+            usersMap.add(request.user, updatedUser);
+          };
+        };
+      };
+    };
+  };
+
+  // NEW AUTH METHODS
+
+  // loginWithPassword : Accepts email/password, returns session token
+  public shared ({ caller }) func loginWithPassword(email : Text, password : Text) : async Text {
+    let principal = switch (emailToPrincipalMap.get(email)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?p) { p };
+    };
+
+    switch (passwordsMap.get(email)) {
+      case (null) { Runtime.trap("Invalid password") };
+      case (?storedPassword) {
+        if (storedPassword != password) { Runtime.trap("Invalid password") };
+      };
+    };
+
+    let token = "sess-" # email # "-" # Time.now().toText();
+    sessionsMap.add(token, principal);
+    token;
+  };
+
+  // getProfileByToken : Returns user for a session token
+  public query ({ caller }) func getProfileByToken(token : Text) : async User {
+    let principal = switch (sessionsMap.get(token)) {
+      case (null) { Runtime.trap("Invalid session") };
+      case (?p) { p };
+    };
+    switch (usersMap.get(principal)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) { user };
+    };
+  };
+
+  // logoutByToken : Invalidates a session token
+  public shared ({ caller }) func logoutByToken(token : Text) : async () {
+    switch (sessionsMap.get(token)) {
+      case (null) { Runtime.trap("Invalid session") };
+      case (?_) {
+        sessionsMap.remove(token);
+      };
+    };
+  };
+
+  // isAdminByToken : Checks if session token is admin
+  public shared ({ caller }) func isAdminByToken(token : Text) : async Bool {
+    switch (sessionsMap.get(token)) {
+      case (null) { false };
+      case (?principal) { await isAdminUser(principal) };
+    };
+  };
+
+  // getUserByToken : Returns principal and user for a token (for order placement)
+  public query ({ caller }) func getUserByToken(token : Text) : async (Principal, User) {
+    let principal = switch (sessionsMap.get(token)) {
+      case (null) { Runtime.trap("Invalid session") };
+      case (?p) { p };
+    };
+
+    let user = switch (usersMap.get(principal)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) { user };
+    };
+    (principal, user);
+  };
+
+  // ADMIN FUNCTIONS
+
+  // ADJUST USER BALANCE
+  public shared ({ caller }) func adjustUserBalance(targetEmail : Text, amount : Float, isDeduct : Bool) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can adjust user balance");
+    };
+
+    let targetPrincipal = switch (emailToPrincipalMap.get(targetEmail)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?p) { p };
+    };
+
+    if (not usersMap.containsKey(targetPrincipal)) {
+      Runtime.trap("User does not exist");
+    };
+
+    let targetUser = switch (usersMap.get(targetPrincipal)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?u) { u };
+    };
+
+    let newBalance = if (isDeduct) {
+      if (targetUser.balance < amount) {
+        Runtime.trap("Insufficient balance for deduction");
+      };
+      targetUser.balance - amount;
+    } else { targetUser.balance + amount };
+
+    let updatedUser = {
+      name = targetUser.name;
+      email = targetUser.email;
+      mobile = targetUser.mobile;
+      balance = newBalance;
+    };
+
+    usersMap.add(targetPrincipal, updatedUser);
+  };
+
+  // ADMIN RESET PASSWORD
+  public shared ({ caller }) func adminResetPassword(targetEmail : Text, newPassword : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can reset passwords");
+    };
+    if (not emailToPrincipalMap.containsKey(targetEmail)) {
+      Runtime.trap("User not found");
+    };
+    passwordsMap.add(targetEmail, newPassword);
+  };
+
+  // APP SETTINGS FUNCTIONS
+
+  public query ({ caller }) func getAppSettings() : async AppSettings {
+    switch (appSettings) {
+      case (?settings) { settings };
+      case (null) {
+        {
+          termsText = "Default terms";
+          privacyText = "Default privacy";
+          stockGainColor = "#00FF00";
+          stockLossColor = "#FF0000";
+        };
+      };
+    };
+  };
+
+  public shared ({ caller }) func updateAppSettings(termsText : Text, privacyText : Text, stockGainColor : Text, stockLossColor : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can update app settings");
+    };
+    appSettings := ?{ termsText; privacyText; stockGainColor; stockLossColor };
+  };
+
+  // ADMIN VIEW ALL POSITIONS
+  public shared ({ caller }) func getAllPositions() : async [(Principal, [PositionSummary])] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can view all positions");
+    };
+
+    let positionsArray = positionsMap.toArray();
+    positionsArray.map(
+      func((principal, userPositions)) {
+        let positions = userPositions.values().toArray();
+        let summaries = positions.map(
+          func(pos) {
+            let currentPrice = getCurrentPrice(pos.symbol);
+            {
+              symbol = pos.symbol;
+              quantity = pos.quantity;
+              avgBuyPrice = pos.avgBuyPrice;
+              tradeType = pos.tradeType;
+              marginUsed = pos.marginUsed;
+              unrealizedPnL = (currentPrice - pos.avgBuyPrice) * pos.quantity;
+            };
+          }
+        );
+        (principal, summaries.sort());
+      }
+    );
+  };
+
+  // ADMIN CLOSE POSITION
+  public shared ({ caller }) func adminClosePosition(targetPrincipal : Principal, symbol : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can close positions");
+    };
+
+    switch (positionsMap.get(targetPrincipal)) {
+      case (null) { Runtime.trap("No positions found for user") };
+      case (?userPositions) {
+        switch (userPositions.get(symbol)) {
+          case (null) { Runtime.trap("No position found for symbol") };
+          case (?pos) {
+            // Remove position from user's positions
+            userPositions.remove(symbol);
+
+            // Calculate margin to return
+            let marginToReturn = pos.marginUsed;
+
+            // Update user's balance
+            switch (usersMap.get(targetPrincipal)) {
+              case (null) { Runtime.trap("User not found") };
+              case (?user) {
+                let updatedUser = {
+                  name = user.name;
+                  email = user.email;
+                  mobile = user.mobile;
+                  balance = user.balance + marginToReturn;
+                };
+                usersMap.add(targetPrincipal, updatedUser);
+              };
+            };
+          };
+        };
+      };
+    };
+  };
+
+  // ADMIN EDIT POSITION
+  public shared ({ caller }) func adminEditPosition(targetPrincipal : Principal, symbol : Text, newQuantity : Float, newAvgPrice : Float) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can edit positions");
+    };
+
+    switch (positionsMap.get(targetPrincipal)) {
+      case (null) { Runtime.trap("No positions found for user") };
+      case (?userPositions) {
+        switch (userPositions.get(symbol)) {
+          case (null) { Runtime.trap("No position found for symbol") };
+          case (?pos) {
+            let updatedPosition = {
+              symbol = pos.symbol;
+              quantity = newQuantity;
+              avgBuyPrice = newAvgPrice;
+              tradeType = pos.tradeType;
+              marginUsed = if (pos.tradeType == #intraday) { calculateMargin(newAvgPrice, newQuantity, 500) } else {
+                calculateMargin(newAvgPrice, newQuantity, 100);
+              };
+              unrealizedPnL = pos.unrealizedPnL;
+              timestamp = pos.timestamp;
+            };
+
+            userPositions.add(symbol, updatedPosition);
+          };
+        };
+      };
+    };
+  };
+};

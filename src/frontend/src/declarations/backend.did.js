@@ -19,12 +19,24 @@ export const AdminStats = IDL.Record({
   'totalInstruments' : IDL.Nat,
   'totalUsers' : IDL.Nat,
 });
+export const Time = IDL.Int;
+export const CreditCodeStatus = IDL.Variant({
+  'active' : IDL.Null,
+  'redeemed' : IDL.Null,
+});
+export const CreditCode = IDL.Record({
+  'redeemedAt' : IDL.Opt(Time),
+  'redeemedBy' : IDL.Opt(IDL.Principal),
+  'status' : CreditCodeStatus,
+  'code' : IDL.Text,
+  'createdAt' : Time,
+  'amount' : IDL.Float64,
+});
 export const DepositStatus = IDL.Variant({
   'pending' : IDL.Null,
   'approved' : IDL.Null,
   'rejected' : IDL.Null,
 });
-export const Time = IDL.Int;
 export const DepositRequest = IDL.Record({
   'id' : IDL.Text,
   'status' : DepositStatus,
@@ -144,14 +156,17 @@ export const idlService = IDL.Service({
   'authenticate' : IDL.Func([IDL.Principal], [IDL.Bool], []),
   'authenticateAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
   'closePosition' : IDL.Func([IDL.Text, IDL.Float64], [], []),
+  'createCreditCode' : IDL.Func([IDL.Text, IDL.Float64], [], []),
   'createInstrument' : IDL.Func(
       [IDL.Text, IDL.Text, Category, IDL.Float64, IDL.Float64],
       [],
       [],
     ),
+  'deleteCreditCode' : IDL.Func([IDL.Text], [], []),
   'deleteInstrument' : IDL.Func([IDL.Text], [], []),
   'deposit' : IDL.Func([IDL.Float64], [], []),
   'getAdminStats' : IDL.Func([], [AdminStats], []),
+  'getAllCreditCodes' : IDL.Func([], [IDL.Vec(CreditCode)], []),
   'getAllDepositRequests' : IDL.Func([], [IDL.Vec(DepositRequest)], []),
   'getAllInstruments' : IDL.Func([], [IDL.Vec(Instrument)], ['query']),
   'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], []),
@@ -192,6 +207,7 @@ export const idlService = IDL.Service({
       [IDL.Text],
       [],
     ),
+  'redeemCreditCode' : IDL.Func([IDL.Text], [], []),
   'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
   'registerUserWithPassword' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
@@ -238,12 +254,24 @@ export const idlFactory = ({ IDL }) => {
     'totalInstruments' : IDL.Nat,
     'totalUsers' : IDL.Nat,
   });
+  const Time = IDL.Int;
+  const CreditCodeStatus = IDL.Variant({
+    'active' : IDL.Null,
+    'redeemed' : IDL.Null,
+  });
+  const CreditCode = IDL.Record({
+    'redeemedAt' : IDL.Opt(Time),
+    'redeemedBy' : IDL.Opt(IDL.Principal),
+    'status' : CreditCodeStatus,
+    'code' : IDL.Text,
+    'createdAt' : Time,
+    'amount' : IDL.Float64,
+  });
   const DepositStatus = IDL.Variant({
     'pending' : IDL.Null,
     'approved' : IDL.Null,
     'rejected' : IDL.Null,
   });
-  const Time = IDL.Int;
   const DepositRequest = IDL.Record({
     'id' : IDL.Text,
     'status' : DepositStatus,
@@ -360,14 +388,17 @@ export const idlFactory = ({ IDL }) => {
     'authenticate' : IDL.Func([IDL.Principal], [IDL.Bool], []),
     'authenticateAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
     'closePosition' : IDL.Func([IDL.Text, IDL.Float64], [], []),
+    'createCreditCode' : IDL.Func([IDL.Text, IDL.Float64], [], []),
     'createInstrument' : IDL.Func(
         [IDL.Text, IDL.Text, Category, IDL.Float64, IDL.Float64],
         [],
         [],
       ),
+    'deleteCreditCode' : IDL.Func([IDL.Text], [], []),
     'deleteInstrument' : IDL.Func([IDL.Text], [], []),
     'deposit' : IDL.Func([IDL.Float64], [], []),
     'getAdminStats' : IDL.Func([], [AdminStats], []),
+    'getAllCreditCodes' : IDL.Func([], [IDL.Vec(CreditCode)], []),
     'getAllDepositRequests' : IDL.Func([], [IDL.Vec(DepositRequest)], []),
     'getAllInstruments' : IDL.Func([], [IDL.Vec(Instrument)], ['query']),
     'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], []),
@@ -408,6 +439,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Text],
         [],
       ),
+    'redeemCreditCode' : IDL.Func([IDL.Text], [], []),
     'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
     'registerUserWithPassword' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Text],

@@ -22,6 +22,8 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Copy,
   Loader2,
@@ -30,6 +32,7 @@ import {
   RefreshCw,
   Shield,
   Smartphone,
+  Tag,
   TrendingUp,
   User,
   Wallet,
@@ -45,6 +48,7 @@ import {
   useGetPortfolioSummary,
   useGetUserProfile,
   useGetWithdrawalRequests,
+  useRedeemCreditCode,
   useRequestDeposit,
   useRequestWithdrawal,
   useSubmitDepositUtr,
@@ -191,8 +195,11 @@ function DepositDialog() {
   const [step, setStep] = useState<"amount" | "payment" | "utr">("amount");
   const [requestId, setRequestId] = useState<string>("");
   const [utrNumber, setUtrNumber] = useState<string>("");
+  const [showCreditCode, setShowCreditCode] = useState(false);
+  const [creditCode, setCreditCode] = useState("");
   const requestDeposit = useRequestDeposit();
   const submitDepositUtr = useSubmitDepositUtr();
+  const redeemCreditCode = useRedeemCreditCode();
   const { data: paymentSettings } = useGetPaymentSettings();
 
   const handleClose = (val: boolean) => {
@@ -202,6 +209,26 @@ function DepositDialog() {
       setAmount("");
       setRequestId("");
       setUtrNumber("");
+      setShowCreditCode(false);
+      setCreditCode("");
+    }
+  };
+
+  const handleRedeemCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = creditCode.trim().toUpperCase();
+    if (!code) {
+      toast.error("Please enter a credit code");
+      return;
+    }
+    try {
+      await redeemCreditCode.mutateAsync(code);
+      toast.success(
+        "Credit code redeemed! Balance has been credited to your account.",
+      );
+      handleClose(false);
+    } catch {
+      toast.error("Invalid or already used credit code. Please try again.");
     }
   };
 
@@ -304,6 +331,58 @@ function DepositDialog() {
                   Balance credited after admin verification
                 </span>
               </div>
+
+              {/* Credit Code Section */}
+              <div className="border border-border rounded-md overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowCreditCode((v) => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Tag className="w-3.5 h-3.5" />
+                    Have a credit code?
+                  </span>
+                  {showCreditCode ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                {showCreditCode && (
+                  <div className="px-3 pb-3 pt-1 bg-muted/20 border-t border-border">
+                    <form
+                      onSubmit={handleRedeemCode}
+                      className="flex gap-2 mt-2"
+                    >
+                      <Input
+                        value={creditCode}
+                        onChange={(e) =>
+                          setCreditCode(e.target.value.toUpperCase())
+                        }
+                        placeholder="e.g. WELCOME500"
+                        className="bg-input border-border font-mono text-sm uppercase flex-1"
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        disabled={redeemCreditCode.isPending}
+                        className="bg-gain text-background hover:opacity-90 font-semibold shrink-0"
+                      >
+                        {redeemCreditCode.isPending ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          "Redeem"
+                        )}
+                      </Button>
+                    </form>
+                    <p className="text-xs text-muted-foreground mt-1.5">
+                      Enter your code to instantly credit your balance.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <DialogFooter>
                 <Button
                   type="button"

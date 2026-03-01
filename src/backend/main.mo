@@ -129,6 +129,17 @@ actor {
     qrCodeData : Text;
   };
 
+  // CREDIT CODE TYPES
+  public type CreditCodeStatus = { #active; #redeemed };
+  public type CreditCode = {
+    code : Text;
+    amount : Float;
+    status : CreditCodeStatus;
+    createdAt : Time.Time;
+    redeemedBy : ?Principal;
+    redeemedAt : ?Time.Time;
+  };
+
   // SORTING MODULES
   module Instrument {
     public func compare(instrument1 : Instrument, instrument2 : Instrument) : Order.Order {
@@ -191,6 +202,9 @@ actor {
   // App Settings (admin managed)
   var appSettings : ?AppSettings = null;
 
+  // CREDIT CODES MAP
+  let creditCodesMap = Map.empty<Text, CreditCode>();
+
   // HELPER FUNCTIONS
 
   // ADMIN AUTH (by principal or admin email)
@@ -217,6 +231,98 @@ actor {
     switch (ordersMap.get(orderId)) {
       case (null) { Runtime.trap("Order not found") };
       case (?order) { order };
+    };
+  };
+
+  // CREDIT CODE FUNCTIONS
+
+  public shared ({ caller }) func createCreditCode(code : Text, amount : Float) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can create credit codes");
+    };
+
+    if (code.trim(#char ' ').size() == 0) {
+      Runtime.trap("Code cannot be empty");
+    };
+
+    if (amount <= 0) {
+      Runtime.trap("Amount must be greater than 0");
+    };
+
+    if (creditCodesMap.containsKey(code)) {
+      Runtime.trap("Code already exists");
+    };
+
+    let creditCode : CreditCode = {
+      code;
+      amount;
+      status = #active;
+      createdAt = Time.now();
+      redeemedBy = null;
+      redeemedAt = null;
+    };
+
+    creditCodesMap.add(code, creditCode);
+  };
+
+  public shared ({ caller }) func getAllCreditCodes() : async [CreditCode] {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can access this function");
+    };
+    creditCodesMap.values().toArray();
+  };
+
+  public shared ({ caller }) func deleteCreditCode(code : Text) : async () {
+    if (not (await isAdminUser(caller))) {
+      Runtime.trap("Only admin can delete credit codes");
+    };
+
+    switch (creditCodesMap.get(code)) {
+      case (null) { Runtime.trap("Code not found") };
+      case (?creditCode) {
+        if (creditCode.status != #active) {
+          Runtime.trap("Only active codes can be deleted");
+        };
+        creditCodesMap.remove(code);
+      };
+    };
+  };
+
+  public shared ({ caller }) func redeemCreditCode(code : Text) : async () {
+    switch (creditCodesMap.get(code)) {
+      case (null) { Runtime.trap("Code not found") };
+      case (?creditCode) {
+        if (creditCode.status != #active) {
+          Runtime.trap("Code has already been redeemed");
+        };
+
+        if (not usersMap.containsKey(caller)) {
+          Runtime.trap("User does not exist");
+        };
+
+        let updatedCreditCode : CreditCode = {
+          code = creditCode.code;
+          amount = creditCode.amount;
+          status = #redeemed;
+          createdAt = creditCode.createdAt;
+          redeemedBy = ?caller;
+          redeemedAt = ?Time.now();
+        };
+        creditCodesMap.add(code, updatedCreditCode);
+
+        switch (usersMap.get(caller)) {
+          case (null) { Runtime.trap("User not found") };
+          case (?user) {
+            let updatedUser : User = {
+              name = user.name;
+              email = user.email;
+              mobile = user.mobile;
+              balance = user.balance + creditCode.amount;
+            };
+            usersMap.add(caller, updatedUser);
+          };
+        };
+      };
     };
   };
 
@@ -1187,3 +1293,4 @@ actor {
     };
   };
 };
+

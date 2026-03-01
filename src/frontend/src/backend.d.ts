@@ -43,6 +43,14 @@ export interface PortfolioSummary {
     currentValue: number;
     marginUsed: number;
 }
+export interface CreditCode {
+    redeemedAt?: Time;
+    redeemedBy?: Principal;
+    status: CreditCodeStatus;
+    code: string;
+    createdAt: Time;
+    amount: number;
+}
 export interface Order {
     id: string;
     status: OrderStatus;
@@ -97,6 +105,10 @@ export enum Category {
     crypto = "crypto",
     commodity = "commodity"
 }
+export enum CreditCodeStatus {
+    active = "active",
+    redeemed = "redeemed"
+}
 export enum DepositStatus {
     pending = "pending",
     approved = "approved",
@@ -136,10 +148,13 @@ export interface backendInterface {
     authenticate(userPrincipal: Principal): Promise<boolean>;
     authenticateAdmin(userPrincipal: Principal): Promise<boolean>;
     closePosition(symbol: string, quantity: number): Promise<void>;
+    createCreditCode(code: string, amount: number): Promise<void>;
     createInstrument(symbol: string, name: string, category: Category, currentPrice: number, previousClose: number): Promise<void>;
+    deleteCreditCode(code: string): Promise<void>;
     deleteInstrument(symbol: string): Promise<void>;
     deposit(amount: number): Promise<void>;
     getAdminStats(): Promise<AdminStats>;
+    getAllCreditCodes(): Promise<Array<CreditCode>>;
     getAllDepositRequests(): Promise<Array<DepositRequest>>;
     getAllInstruments(): Promise<Array<Instrument>>;
     getAllOrders(): Promise<Array<Order>>;
@@ -164,6 +179,7 @@ export interface backendInterface {
     loginWithPassword(email: string, password: string): Promise<string>;
     logoutByToken(token: string): Promise<void>;
     placeOrder(symbol: string, quantity: number, price: number, orderType: OrderType, tradeType: TradeType, side: Side): Promise<string>;
+    redeemCreditCode(code: string): Promise<void>;
     registerUser(name: string, email: string, mobile: string): Promise<void>;
     registerUserWithPassword(name: string, email: string, mobile: string, password: string): Promise<void>;
     rejectDeposit(requestId: string): Promise<void>;

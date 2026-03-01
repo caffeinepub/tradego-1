@@ -29,6 +29,7 @@ import {
   QrCode,
   RefreshCw,
   Settings,
+  Tag,
   Trash2,
   TrendingDown,
   TrendingUp,
@@ -64,6 +65,8 @@ import { useActor } from "../hooks/useActor";
 
 import {
   Category,
+  type CreditCode,
+  CreditCodeStatus,
   DepositStatus,
   type Instrument,
   OrderStatus,
@@ -82,6 +85,9 @@ enum WithdrawalStatus {
 import {
   useApproveDeposit,
   useApproveWithdrawal,
+  useCreateCreditCode,
+  useDeleteCreditCode,
+  useGetAllCreditCodes,
   useGetAllDepositRequests,
   useGetAllWithdrawalRequests,
   useGetPaymentSettings,
@@ -99,6 +105,7 @@ type AdminTab =
   | "withdrawals"
   | "deposits"
   | "payments"
+  | "creditCodes"
   | "settings";
 
 // ─── Admin Queries & Mutations ─────────────────────────────────────────────
@@ -2406,6 +2413,252 @@ function DepositsTab() {
   );
 }
 
+// ─── Credit Codes Tab ─────────────────────────────────────────────────────
+
+function CreditCodeStatusBadge({ status }: { status: CreditCodeStatus }) {
+  if (status === CreditCodeStatus.active) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border bg-gain-muted text-gain border-gain/20">
+        Active
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border bg-muted text-muted-foreground border-border">
+      Redeemed
+    </span>
+  );
+}
+
+function CreditCodesTab() {
+  const { data: codes = [], isLoading, refetch } = useGetAllCreditCodes();
+  const createCode = useCreateCreditCode();
+  const deleteCode = useDeleteCreditCode();
+
+  const [newCode, setNewCode] = useState("");
+  const [newAmount, setNewAmount] = useState("");
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = newCode.trim().toUpperCase();
+    const amount = Number.parseFloat(newAmount);
+    if (!code) {
+      toast.error("Please enter a credit code");
+      return;
+    }
+    if (Number.isNaN(amount) || amount <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+    try {
+      await createCode.mutateAsync({ code, amount });
+      toast.success(`Credit code "${code}" created for ₹${amount}`);
+      setNewCode("");
+      setNewAmount("");
+    } catch {
+      toast.error("Failed to create credit code");
+    }
+  };
+
+  const handleDelete = (code: string) => {
+    if (!window.confirm(`Delete credit code "${code}"?`)) return;
+    deleteCode.mutate(code, {
+      onSuccess: () => toast.success(`Credit code "${code}" deleted`),
+      onError: () => toast.error("Failed to delete credit code"),
+    });
+  };
+
+  const formatTimestamp = (ts: bigint): string => {
+    const ms = Number(ts / 1_000_000n);
+    const date = new Date(ms);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleString("en-IN", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  };
+
+  return (
+    <div className="space-y-5 animate-fade-in-up max-w-3xl">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+          <Tag className="w-5 h-5 text-muted-foreground" />
+          Credit Codes
+        </h2>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          className="gap-1.5 text-xs"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Create new code form */}
+      <Card className="bg-card border-border shadow-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Create New Credit Code
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={handleCreate}
+            className="flex flex-col sm:flex-row gap-3"
+          >
+            <div className="flex-1 space-y-1">
+              <Label
+                htmlFor="credit-code"
+                className="text-xs text-muted-foreground uppercase tracking-wide"
+              >
+                Code
+              </Label>
+              <Input
+                id="credit-code"
+                value={newCode}
+                onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                placeholder="e.g. WELCOME500"
+                className="bg-input border-border font-mono uppercase"
+              />
+            </div>
+            <div className="w-full sm:w-40 space-y-1">
+              <Label
+                htmlFor="credit-amount"
+                className="text-xs text-muted-foreground uppercase tracking-wide"
+              >
+                Amount (₹)
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">
+                  ₹
+                </span>
+                <Input
+                  id="credit-amount"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={newAmount}
+                  onChange={(e) => setNewAmount(e.target.value)}
+                  placeholder="500"
+                  className="pl-7 bg-input border-border font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="submit"
+                disabled={createCode.isPending}
+                className="bg-primary text-primary-foreground hover:bg-primary/90 whitespace-nowrap"
+              >
+                {createCode.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Plus className="w-4 h-4 mr-2" />
+                )}
+                {createCode.isPending ? "Creating…" : "Create Code"}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Codes table */}
+      <Card className="bg-card border-border shadow-card">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border hover:bg-transparent">
+                <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+                  Code
+                </TableHead>
+                <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider text-right">
+                  Amount
+                </TableHead>
+                <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+                  Status
+                </TableHead>
+                <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+                  Created At
+                </TableHead>
+                <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+                  Redeemed At
+                </TableHead>
+                <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider text-right">
+                  Actions
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+                  </TableCell>
+                </TableRow>
+              ) : codes.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="text-center py-12 text-muted-foreground text-sm"
+                  >
+                    No credit codes yet — create one above
+                  </TableCell>
+                </TableRow>
+              ) : (
+                codes.map((cc: CreditCode, idx: number) => (
+                  <TableRow
+                    key={cc.code}
+                    className={idx % 2 === 0 ? "bg-muted/20" : ""}
+                  >
+                    <TableCell className="font-mono text-sm font-semibold text-foreground">
+                      {cc.code}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm font-semibold text-gain text-right">
+                      ₹{cc.amount.toLocaleString("en-IN")}
+                    </TableCell>
+                    <TableCell>
+                      <CreditCodeStatusBadge status={cc.status} />
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatTimestamp(cc.createdAt)}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {cc.redeemedAt ? formatTimestamp(cc.redeemedAt) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end">
+                        {cc.status === CreditCodeStatus.active && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-loss hover:text-loss hover:bg-loss-muted"
+                            onClick={() => handleDelete(cc.code)}
+                            disabled={deleteCode.isPending}
+                            title="Delete code"
+                          >
+                            {deleteCode.isPending ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Payments Tab ─────────────────────────────────────────────────────────
 
 function PaymentsTab() {
@@ -2683,6 +2936,11 @@ export function AdminPanel({ onLogout }: AdminPanelProps) {
       label: "Payments",
     },
     {
+      id: "creditCodes",
+      icon: <Tag className="w-4 h-4" />,
+      label: "Credit Codes",
+    },
+    {
       id: "settings",
       icon: <Settings className="w-4 h-4" />,
       label: "Settings",
@@ -2765,6 +3023,7 @@ export function AdminPanel({ onLogout }: AdminPanelProps) {
           {activeTab === "withdrawals" && <WithdrawalsTab />}
           {activeTab === "deposits" && <DepositsTab />}
           {activeTab === "payments" && <PaymentsTab />}
+          {activeTab === "creditCodes" && <CreditCodesTab />}
           {activeTab === "settings" && <SettingsTab />}
         </main>
       </div>

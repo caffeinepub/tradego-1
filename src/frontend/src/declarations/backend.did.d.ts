@@ -25,6 +25,16 @@ export type Category = { 'forex' : null } |
   { 'stock' : null } |
   { 'crypto' : null } |
   { 'commodity' : null };
+export interface CreditCode {
+  'redeemedAt' : [] | [Time],
+  'redeemedBy' : [] | [Principal],
+  'status' : CreditCodeStatus,
+  'code' : string,
+  'createdAt' : Time,
+  'amount' : number,
+}
+export type CreditCodeStatus = { 'active' : null } |
+  { 'redeemed' : null };
 export interface DepositRequest {
   'id' : string,
   'status' : DepositStatus,
@@ -128,13 +138,16 @@ export interface _SERVICE {
   'authenticate' : ActorMethod<[Principal], boolean>,
   'authenticateAdmin' : ActorMethod<[Principal], boolean>,
   'closePosition' : ActorMethod<[string, number], undefined>,
+  'createCreditCode' : ActorMethod<[string, number], undefined>,
   'createInstrument' : ActorMethod<
     [string, string, Category, number, number],
     undefined
   >,
+  'deleteCreditCode' : ActorMethod<[string], undefined>,
   'deleteInstrument' : ActorMethod<[string], undefined>,
   'deposit' : ActorMethod<[number], undefined>,
   'getAdminStats' : ActorMethod<[], AdminStats>,
+  'getAllCreditCodes' : ActorMethod<[], Array<CreditCode>>,
   'getAllDepositRequests' : ActorMethod<[], Array<DepositRequest>>,
   'getAllInstruments' : ActorMethod<[], Array<Instrument>>,
   'getAllOrders' : ActorMethod<[], Array<Order>>,
@@ -165,6 +178,7 @@ export interface _SERVICE {
     [string, number, number, OrderType, TradeType, Side],
     string
   >,
+  'redeemCreditCode' : ActorMethod<[string], undefined>,
   'registerUser' : ActorMethod<[string, string, string], undefined>,
   'registerUserWithPassword' : ActorMethod<
     [string, string, string, string],

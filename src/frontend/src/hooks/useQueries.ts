@@ -484,3 +484,59 @@ export function useRejectDeposit() {
     },
   });
 }
+
+export function useGetAllCreditCodes() {
+  const { actor, isFetching } = useActor();
+  return useQuery({
+    queryKey: ["creditCodes"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getAllCreditCodes();
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 15_000,
+  });
+}
+
+export function useCreateCreditCode() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ code, amount }: { code: string; amount: number }) => {
+      if (!actor) throw new Error("No actor");
+      return actor.createCreditCode(code, amount);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["creditCodes"] });
+    },
+  });
+}
+
+export function useDeleteCreditCode() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (code: string) => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteCreditCode(code);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["creditCodes"] });
+    },
+  });
+}
+
+export function useRedeemCreditCode() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (code: string) => {
+      if (!actor) throw new Error("No actor");
+      return actor.redeemCreditCode(code);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+      queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+    },
+  });
+}

@@ -121,6 +121,7 @@ export function Registration({
       return;
     }
     setIsRegistering(true);
+    toast.loading("Creating your account...", { id: "register" });
     try {
       await onRegister(
         name.trim(),
@@ -128,8 +129,10 @@ export function Registration({
         mobile.trim(),
         password,
       );
+      toast.dismiss("register");
       // Success — App.tsx will handle state transition
     } catch (err) {
+      toast.dismiss("register");
       const message = err instanceof Error ? err.message : String(err);
       const lowerMsg = message.toLowerCase();
       if (
@@ -137,7 +140,7 @@ export function Registration({
         lowerMsg.includes("retry connection")
       ) {
         toast.error(
-          "Server connection failed. Please tap 'Retry Connection' at the top.",
+          "Server is starting up. Please wait 10 seconds and try again.",
         );
       } else if (
         lowerMsg.includes("already registered") ||
@@ -149,7 +152,7 @@ export function Registration({
         lowerMsg.includes("server") ||
         lowerMsg.includes("loading")
       ) {
-        toast.error("Unable to connect. Please wait a moment and try again.");
+        toast.error("Server is starting. Please wait a moment and try again.");
       } else if (lowerMsg.includes("empty") || lowerMsg.includes("invalid")) {
         toast.error(message);
       } else {
@@ -174,10 +177,13 @@ export function Registration({
       return;
     }
     setIsSigningIn(true);
+    toast.loading("Signing in...", { id: "signin" });
     try {
       await onLogin(signInEmail.trim().toLowerCase(), signInPassword);
+      toast.dismiss("signin");
       // Success — App.tsx handles state transition
     } catch (err) {
+      toast.dismiss("signin");
       const message = err instanceof Error ? err.message : String(err);
       const lowerMsg = message.toLowerCase();
       if (
@@ -185,7 +191,7 @@ export function Registration({
         lowerMsg.includes("retry connection")
       ) {
         setSignInError(
-          "Server connection failed. Please tap 'Retry Connection' at the top.",
+          "Server is starting up. Please wait 10 seconds and try again.",
         );
       } else if (
         lowerMsg.includes("invalid") ||
@@ -202,7 +208,11 @@ export function Registration({
         lowerMsg.includes("loading")
       ) {
         setSignInError(
-          "Unable to connect. Please wait a moment and try again.",
+          "Server is starting up. Please wait a moment and try again.",
+        );
+      } else if (lowerMsg.includes("stopped") || lowerMsg.includes("ic0508")) {
+        setSignInError(
+          "Server is restarting. Please wait 30 seconds and try again.",
         );
       } else {
         setSignInError(
@@ -374,35 +384,25 @@ export function Registration({
 
                     <Button
                       type="submit"
-                      disabled={isSigningIn || isActorLoading || actorFailed}
+                      disabled={isSigningIn}
                       className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2 disabled:opacity-50"
                     >
-                      {isActorLoading && !isSigningIn && !actorFailed ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Connecting...
-                        </>
-                      ) : isSigningIn ? (
+                      {isSigningIn ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Signing In...
-                        </>
-                      ) : actorFailed ? (
-                        <>
-                          <WifiOff className="mr-2 h-4 w-4" />
-                          Connection Failed
                         </>
                       ) : (
                         "Sign In →"
                       )}
                     </Button>
 
-                    {/* Connecting status indicator */}
+                    {/* Server starting indicator */}
                     {isActorLoading && !actorFailed && (
                       <div className="flex items-center justify-center gap-2 mt-2">
                         <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
                         <span className="text-xs text-amber-500/80">
-                          Connecting to server...
+                          Server starting... you can sign in now
                         </span>
                       </div>
                     )}
@@ -540,35 +540,25 @@ export function Registration({
 
                     <Button
                       type="submit"
-                      disabled={isRegistering || isActorLoading || actorFailed}
+                      disabled={isRegistering}
                       className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2 disabled:opacity-50"
                     >
-                      {isActorLoading && !isRegistering && !actorFailed ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Connecting...
-                        </>
-                      ) : isRegistering ? (
+                      {isRegistering ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Creating Account...
-                        </>
-                      ) : actorFailed ? (
-                        <>
-                          <WifiOff className="mr-2 h-4 w-4" />
-                          Connection Failed
                         </>
                       ) : (
                         "Create Account →"
                       )}
                     </Button>
 
-                    {/* Connecting status indicator */}
+                    {/* Server starting indicator */}
                     {isActorLoading && !actorFailed && (
                       <div className="flex items-center justify-center gap-2 mt-2">
                         <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
                         <span className="text-xs text-amber-500/80">
-                          Connecting to server...
+                          Server starting... you can sign up now
                         </span>
                       </div>
                     )}

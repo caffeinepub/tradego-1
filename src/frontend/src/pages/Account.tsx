@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { DepositStatus, WithdrawalMethod } from "../backend.d";
+import { WithdrawalMethod } from "../backend.d";
 import {
   useGetDepositRequests,
   useGetPaymentSettings,
@@ -55,22 +55,24 @@ import {
 } from "../hooks/useQueries";
 import { formatBalance, formatPnL } from "../utils/format";
 
-// WithdrawalStatus is used in the backend but not yet exported as enum — define locally
-enum WithdrawalStatus {
-  pending = "pending",
-  approved = "approved",
-  rejected = "rejected",
+// Motoko variants are deserialized as objects like { pending: null } not plain strings.
+// This helper extracts the key from both string and object forms.
+function getStatusKey(status: unknown): string {
+  if (typeof status === "string") return status;
+  if (typeof status === "object" && status !== null)
+    return Object.keys(status)[0] ?? "";
+  return "";
 }
 
 // ─── Countdown Timer Hook ──────────────────────────────────────────────────
 
 const THIRTY_MINUTES_NS = BigInt(30 * 60 * 1_000_000_000); // 30 min in nanoseconds
 
-function useCountdown(requestTimeNs: bigint, status: WithdrawalStatus) {
+function useCountdown(requestTimeNs: bigint, status: unknown) {
   const [remaining, setRemaining] = useState<number>(0); // seconds
 
   useEffect(() => {
-    if (status !== WithdrawalStatus.pending) return;
+    if (getStatusKey(status) !== "pending") return;
 
     const computeRemaining = () => {
       const nowNs = BigInt(Date.now()) * 1_000_000n;
@@ -95,12 +97,13 @@ function useCountdown(requestTimeNs: bigint, status: WithdrawalStatus) {
 interface WithdrawalRowProps {
   id: string;
   amount: number;
-  status: WithdrawalStatus;
+  status: unknown;
   requestTime: bigint;
 }
 
 function WithdrawalRow({ amount, status, requestTime }: WithdrawalRowProps) {
   const remaining = useCountdown(requestTime, status);
+  const statusKey = getStatusKey(status);
 
   const requestMs = Number(requestTime / 1_000_000n);
   const requestDate = new Date(requestMs);
@@ -128,27 +131,27 @@ function WithdrawalRow({ amount, status, requestTime }: WithdrawalRowProps) {
           <span className="font-mono font-semibold text-foreground">
             ₹{amount.toLocaleString("en-IN")}
           </span>
-          {status === WithdrawalStatus.pending && (
+          {statusKey === "pending" && (
             <Badge className="bg-gold-muted text-gold border border-gold/20 text-xs">
-              Pending
+              Processing
             </Badge>
           )}
-          {status === WithdrawalStatus.approved && (
+          {statusKey === "approved" && (
             <Badge className="bg-gain-muted text-gain border border-gain/20 text-xs flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3" />
-              Approved
+              Completed
             </Badge>
           )}
-          {status === WithdrawalStatus.rejected && (
+          {statusKey === "rejected" && (
             <Badge className="bg-loss-muted text-loss border border-loss/20 text-xs flex items-center gap-1">
               <XCircle className="w-3 h-3" />
-              Rejected
+              Unsuccessful
             </Badge>
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">{timeStr}</p>
       </div>
-      {status === WithdrawalStatus.pending && (
+      {statusKey === "pending" && (
         <div className="flex items-center gap-1.5 text-gold text-xs font-mono ml-3 shrink-0">
           <Clock className="w-3 h-3" />
           {formatCountdown(remaining)}
@@ -265,7 +268,7 @@ function DepositDialog() {
         utrNumber: utrNumber.trim(),
       });
       toast.success(
-        "Deposit request submitted. Admin will credit your balance after verification.",
+        "Deposit submitted. Your balance will be credited shortly.",
       );
       handleClose(false);
     } catch {
@@ -295,9 +298,7 @@ function DepositDialog() {
                 Deposit Funds
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Funds are credited{" "}
-                <span className="text-gain font-semibold">instantly</span> to
-                your trading account after admin verification.
+                Funds are credited to your trading account after verification.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleNext} className="space-y-4 mt-2">
@@ -328,7 +329,7 @@ function DepositDialog() {
               <div className="bg-gain-muted/40 border border-gain/20 rounded-md px-3 py-2 flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5 text-gain shrink-0" />
                 <span className="text-xs text-gain font-medium">
-                  Balance credited after admin verification
+                  Balance will be credited after verification
                 </span>
               </div>
 
@@ -545,8 +546,8 @@ function DepositDialog() {
               <div className="bg-gold-muted/40 border border-gold/20 rounded-md px-3 py-2 flex items-start gap-2">
                 <Clock className="w-3.5 h-3.5 text-gold shrink-0 mt-0.5" />
                 <span className="text-xs text-gold">
-                  Your balance will be credited once the admin verifies your
-                  payment.
+                  Your deposit is under review. Balance will be credited
+                  shortly.
                 </span>
               </div>
               <DialogFooter>
@@ -955,8 +956,8 @@ export function Account({ onLogout, userName }: AccountProps) {
                 <span className="text-xs font-semibold text-gain">Deposit</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Credited{" "}
-                <span className="text-gain font-medium">instantly</span>
+                Credited after{" "}
+                <span className="text-gain font-medium">verification</span>
               </p>
             </div>
             <div className="bg-gold-muted/30 border border-gold/20 rounded-md p-3">
@@ -1160,21 +1161,21 @@ export function Account({ onLogout, userName }: AccountProps) {
                         <span className="font-mono font-semibold text-foreground">
                           ₹{dr.amount.toLocaleString("en-IN")}
                         </span>
-                        {dr.status === DepositStatus.pending && (
+                        {getStatusKey(dr.status) === "pending" && (
                           <Badge className="bg-gold-muted text-gold border border-gold/20 text-xs">
-                            Pending
+                            Processing
                           </Badge>
                         )}
-                        {dr.status === DepositStatus.approved && (
+                        {getStatusKey(dr.status) === "approved" && (
                           <Badge className="bg-gain-muted text-gain border border-gain/20 text-xs flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" />
-                            Approved
+                            Credited
                           </Badge>
                         )}
-                        {dr.status === DepositStatus.rejected && (
+                        {getStatusKey(dr.status) === "rejected" && (
                           <Badge className="bg-loss-muted text-loss border border-loss/20 text-xs flex items-center gap-1">
                             <XCircle className="w-3 h-3" />
-                            Rejected
+                            Unsuccessful
                           </Badge>
                         )}
                         {dr.utrNumber && (
@@ -1285,12 +1286,16 @@ export function Account({ onLogout, userName }: AccountProps) {
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
-              { label: "NSE Stocks", desc: "Indian equities", icon: "📈" },
-              { label: "Crypto", desc: "BTC, ETH & more", icon: "₿" },
-              { label: "Forex", desc: "INR pairs", icon: "💱" },
+              {
+                label: "NSE Stocks",
+                desc: "Mon–Fri · 9:15am–3:30pm IST",
+                icon: "📈",
+              },
+              { label: "Crypto", desc: "24/7 · Always open", icon: "₿" },
+              { label: "Forex", desc: "24/7 · Always open", icon: "💱" },
               {
                 label: "MCX Commodities",
-                desc: "Gold, Oil & more",
+                desc: "Mon–Fri · 9am–11:55pm IST",
                 icon: "🥇",
               },
             ].map(({ label, desc, icon }) => (

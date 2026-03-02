@@ -55,14 +55,14 @@ function AppContent() {
       actorFailedRef.current = false;
       return;
     }
-    // If actor is null and not fetching, start a failure timer
+    // If actor is null and not fetching, start a failure timer (30s to account for canister startup)
     if (!actor && !actorFetching) {
       const timer = setTimeout(() => {
         if (!actorRef.current) {
           setActorFailed(true);
           actorFailedRef.current = true;
         }
-      }, 8_000);
+      }, 30_000);
       return () => clearTimeout(timer);
     }
   }, [actor, actorFetching]);
@@ -102,20 +102,17 @@ function AppContent() {
       return;
     }
 
-    // Token exists but actor not ready yet — wait, but with a short timeout
+    // Token exists but actor not ready yet — wait up to 5s then drop to login
     if (!actor && actorFetching) {
-      // Still loading — keep spinner, timeout will handle the stuck case
       const timeout = setTimeout(() => {
-        // Actor took too long — drop back to login
         logout();
         setSessionVerifying(false);
         setSessionVerified(false);
-      }, 6_000);
+      }, 5_000);
       return () => clearTimeout(timeout);
     }
 
-    // Actor not available and not fetching — it either failed or hasn't started
-    // Give it a short grace period then drop to login
+    // Actor not available and not fetching — drop to login after short grace
     if (!actor && !actorFetching) {
       const timeout = setTimeout(() => {
         if (!actorRef.current) {
@@ -123,7 +120,7 @@ function AppContent() {
           setSessionVerifying(false);
           setSessionVerified(false);
         }
-      }, 3_000);
+      }, 2_000);
       return () => clearTimeout(timeout);
     }
 
@@ -131,14 +128,14 @@ function AppContent() {
     if (!actor) return;
 
     setSessionVerifying(true);
-    // 8-second timeout on the actual session check
+    // 5-second timeout on the actual session check
     const timeoutId = setTimeout(() => {
       logout();
       setCurrentUser(null);
       setIsAdmin(false);
       setSessionVerified(false);
       setSessionVerifying(false);
-    }, 8_000);
+    }, 5_000);
 
     actor
       .getSessionFull(token)
@@ -224,18 +221,18 @@ function AppContent() {
         "Server connection failed. Please tap 'Retry Connection' below.",
       );
     }
-    // Poll up to 8 seconds for the actor to become available
-    for (let i = 0; i < 16; i++) {
+    // Poll up to 30 seconds for the actor to become available (canister may be starting)
+    for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (actorRef.current) return actorRef.current;
       if (actorFailedRef.current) {
         throw new Error(
-          "Server connection failed. Please tap 'Retry Connection' below.",
+          "Server connection failed. Please check your internet connection and try again.",
         );
       }
     }
     throw new Error(
-      "Unable to connect to the server. Please check your connection and try again.",
+      "Server is taking too long to respond. Please wait a moment and try again.",
     );
   }, []);
 

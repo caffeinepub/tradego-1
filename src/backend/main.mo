@@ -259,20 +259,23 @@ actor {
 
   // ─── NEW V2 AUTH ──────────────────────────────────────────────────────────
 
-  public shared func registerUserWithPassword(name : Text, email : Text, mobile : Text, password : Text) : async () {
-    if (usersByEmail.containsKey(email)) { Runtime.trap("User already registered") };
-    if (name.trim(#char ' ').size() == 0 or email.trim(#char ' ').size() == 0 or mobile.trim(#char ' ').size() == 0) {
-      Runtime.trap("Name, email, and mobile cannot be empty");
+  public shared ({ caller }) func registerUserWithPassword(name : Text, email : Text, mobile : Text, password : Text) : async () {
+    if (usersByEmail.containsKey(email)) {
+      Runtime.trap("User already registered");
     };
-    if (password.size() == 0) { Runtime.trap("Password cannot be empty") };
-    let user : User = { name; email; mobile; balance = 0.0 };
+    let user : User = {
+      name;
+      email;
+      mobile;
+      balance = 0.0;
+    };
     usersByEmail.add(email, user);
     watchlistsByEmail.add(email, Set.empty<Text>());
     positionsByEmail.add(email, Map.empty<Text, Position>());
     emailPasswordsMap.add(email, password);
   };
 
-  public shared func loginFull(email : Text, password : Text) : async (Text, User, Bool) {
+  public shared ({ caller }) func loginFull(email : Text, password : Text) : async (Text, User, Bool) {
     let user = switch (usersByEmail.get(email)) {
       case (null) { Runtime.trap("Invalid email or password") };
       case (?u) { u };
@@ -288,7 +291,7 @@ actor {
     (token, user, isAdminEmail(email));
   };
 
-  public query func getSessionFull(token : Text) : async ?(User, Bool) {
+  public query ({ caller }) func getSessionFull(token : Text) : async ?(User, Bool) {
     switch (emailSessionsMap.get(token)) {
       case (null) { null };
       case (?email) {
@@ -300,11 +303,11 @@ actor {
     };
   };
 
-  public shared func logoutByToken(token : Text) : async () {
+  public shared ({ caller }) func logoutByToken(token : Text) : async () {
     emailSessionsMap.remove(token);
   };
 
-  public query func isAdminByToken(token : Text) : async Bool {
+  public query ({ caller }) func isAdminByToken(token : Text) : async Bool {
     switch (emailSessionsMap.get(token)) {
       case (null) { false };
       case (?email) { isAdminEmail(email) };
@@ -321,15 +324,15 @@ actor {
     instrumentsMap.add(symbol, { symbol; name; category; currentPrice; previousClose; priceChangePercent = pct });
   };
 
-  public query func getAllInstruments() : async [Instrument] {
+  public query ({ caller }) func getAllInstruments() : async [Instrument] {
     instrumentsMap.values().toArray().sort();
   };
 
-  public query func getInstrumentsByCategory(category : Category) : async [Instrument] {
+  public query ({ caller }) func getInstrumentsByCategory(category : Category) : async [Instrument] {
     instrumentsMap.values().filter(func(i) { i.category == category }).toArray();
   };
 
-  public shared func updateInstrumentPrice(update : InstrumentUpdate) : async () {
+  public shared ({ caller }) func updateInstrumentPrice(update : InstrumentUpdate) : async () {
     let instrument = switch (instrumentsMap.get(update.symbol)) {
       case (null) { Runtime.trap("Instrument not found") };
       case (?i) { i };
@@ -338,18 +341,18 @@ actor {
     instrumentsMap.add(update.symbol, { symbol = instrument.symbol; name = instrument.name; category = instrument.category; currentPrice = update.currentPrice; previousClose = update.previousClose; priceChangePercent = pct });
   };
 
-  public shared func deleteInstrument(symbol : Text) : async () {
+  public shared ({ caller }) func deleteInstrument(symbol : Text) : async () {
     if (not instrumentsMap.containsKey(symbol)) { Runtime.trap("Instrument does not exist") };
     instrumentsMap.remove(symbol);
   };
 
   // ─── USER PROFILE ─────────────────────────────────────────────────────────
 
-  public query func getUserProfile() : async User {
+  public query ({ caller }) func getUserProfile() : async User {
     Runtime.trap("Please pass token: use getUserProfileByToken");
   };
 
-  public query func getUserProfileByToken(token : Text) : async User {
+  public query ({ caller }) func getUserProfileByToken(token : Text) : async User {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -360,11 +363,11 @@ actor {
     };
   };
 
-  public query func getAvailableBalance() : async Float {
+  public query ({ caller }) func getAvailableBalance() : async Float {
     Runtime.trap("Please pass token: use getAvailableBalanceByToken");
   };
 
-  public query func getAvailableBalanceByToken(token : Text) : async Float {
+  public query ({ caller }) func getAvailableBalanceByToken(token : Text) : async Float {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -377,7 +380,7 @@ actor {
 
   // ─── WATCHLIST ────────────────────────────────────────────────────────────
 
-  public shared func addToWatchlist(token : Text, symbol : Text) : async () {
+  public shared ({ caller }) func addToWatchlist(token : Text, symbol : Text) : async () {
     let email = requireEmailFromSession(token);
     switch (watchlistsByEmail.get(email)) {
       case (null) {
@@ -389,7 +392,7 @@ actor {
     };
   };
 
-  public shared func removeFromWatchlist(token : Text, symbol : Text) : async () {
+  public shared ({ caller }) func removeFromWatchlist(token : Text, symbol : Text) : async () {
     let email = requireEmailFromSession(token);
     switch (watchlistsByEmail.get(email)) {
       case (null) {};
@@ -397,7 +400,7 @@ actor {
     };
   };
 
-  public query func getWatchlist(token : Text) : async [Text] {
+  public query ({ caller }) func getWatchlist(token : Text) : async [Text] {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -464,7 +467,7 @@ actor {
     };
   };
 
-  public shared func placeOrder(token : Text, symbol : Text, quantity : Float, price : Float, orderType : OrderType, tradeType : TradeType, side : Side) : async Text {
+  public shared ({ caller }) func placeOrder(token : Text, symbol : Text, quantity : Float, price : Float, orderType : OrderType, tradeType : TradeType, side : Side) : async Text {
     let email = requireEmailFromSession(token);
     if (not usersByEmail.containsKey(email)) { Runtime.trap("User does not exist") };
 
@@ -505,7 +508,7 @@ actor {
     orderId;
   };
 
-  public shared func closePosition(token : Text, symbol : Text, quantity : Float) : async () {
+  public shared ({ caller }) func closePosition(token : Text, symbol : Text, quantity : Float) : async () {
     let email = requireEmailFromSession(token);
     switch (positionsByEmail.get(email)) {
       case (null) { Runtime.trap("No positions found for user") };
@@ -525,7 +528,7 @@ actor {
     };
   };
 
-  public query func getPortfolioSummary(token : Text) : async PortfolioSummary {
+  public query ({ caller }) func getPortfolioSummary(token : Text) : async PortfolioSummary {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -551,7 +554,7 @@ actor {
     };
   };
 
-  public query func getOpenPositions(token : Text) : async [PositionSummary] {
+  public query ({ caller }) func getOpenPositions(token : Text) : async [PositionSummary] {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -566,7 +569,7 @@ actor {
     };
   };
 
-  public query func getOrders(token : Text) : async [OrderV2] {
+  public query ({ caller }) func getOrders(token : Text) : async [OrderV2] {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -576,7 +579,7 @@ actor {
 
   // ─── DEPOSITS ─────────────────────────────────────────────────────────────
 
-  public shared func requestDeposit(token : Text, amount : Float) : async Text {
+  public shared ({ caller }) func requestDeposit(token : Text, amount : Float) : async Text {
     let email = requireEmailFromSession(token);
     if (not usersByEmail.containsKey(email)) { Runtime.trap("User does not exist") };
     if (amount < 500.0) { Runtime.trap("Minimum deposit is 500") };
@@ -585,7 +588,7 @@ actor {
     requestId;
   };
 
-  public shared func submitDepositUtr(token : Text, requestId : Text, utrNumber : Text) : async () {
+  public shared ({ caller }) func submitDepositUtr(token : Text, requestId : Text, utrNumber : Text) : async () {
     let email = requireEmailFromSession(token);
     switch (depositRequestsV2Map.get(requestId)) {
       case (null) { Runtime.trap("Deposit request not found") };
@@ -597,7 +600,7 @@ actor {
     };
   };
 
-  public query func getDepositRequests(token : Text) : async [DepositRequestV2] {
+  public query ({ caller }) func getDepositRequests(token : Text) : async [DepositRequestV2] {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -607,7 +610,7 @@ actor {
 
   // ─── WITHDRAWALS ──────────────────────────────────────────────────────────
 
-  public shared func requestWithdrawal(token : Text, amount : Float, withdrawalMethod : WithdrawalMethod, upiId : ?Text, bankName : ?Text, accountNumber : ?Text, ifscCode : ?Text) : async Text {
+  public shared ({ caller }) func requestWithdrawal(token : Text, amount : Float, withdrawalMethod : WithdrawalMethod, upiId : ?Text, bankName : ?Text, accountNumber : ?Text, ifscCode : ?Text) : async Text {
     let email = requireEmailFromSession(token);
     switch (usersByEmail.get(email)) {
       case (null) { Runtime.trap("User does not exist") };
@@ -622,7 +625,7 @@ actor {
     };
   };
 
-  public query func getWithdrawalRequests(token : Text) : async [WithdrawalRequestV2] {
+  public query ({ caller }) func getWithdrawalRequests(token : Text) : async [WithdrawalRequestV2] {
     let email = switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?e) { e };
@@ -632,7 +635,7 @@ actor {
 
   // ─── CREDIT CODES ─────────────────────────────────────────────────────────
 
-  public shared func redeemCreditCode(token : Text, code : Text) : async () {
+  public shared ({ caller }) func redeemCreditCode(token : Text, code : Text) : async () {
     let email = requireEmailFromSession(token);
     switch (creditCodesV2Map.get(code)) {
       case (null) { Runtime.trap("Code not found") };
@@ -652,26 +655,26 @@ actor {
 
   // ─── PAYMENT SETTINGS ─────────────────────────────────────────────────────
 
-  public shared func setPaymentSettings(token : Text, upiId : Text, qrCodeData : Text, bankAccountHolder : Text, bankName : Text, bankAccountNumber : Text, bankIfsc : Text) : async () {
+  public shared ({ caller }) func setPaymentSettings(token : Text, upiId : Text, qrCodeData : Text, bankAccountHolder : Text, bankName : Text, bankAccountNumber : Text, bankIfsc : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can update payment settings") };
     paymentSettingsV2 := ?{ upiId; qrCodeData; bankAccountHolder; bankName; bankAccountNumber; bankIfsc };
   };
 
-  public query func getPaymentSettings() : async ?PaymentSettingsV2 {
+  public query ({ caller }) func getPaymentSettings() : async ?PaymentSettingsV2 {
     paymentSettingsV2;
   };
 
   // ─── APP SETTINGS ─────────────────────────────────────────────────────────
 
-  public query func getAppSettings() : async AppSettings {
+  public query ({ caller }) func getAppSettings() : async AppSettings {
     switch (appSettings) {
       case (?s) { s };
       case (null) { { termsText = "Default terms"; privacyText = "Default privacy"; stockGainColor = "#00FF00"; stockLossColor = "#FF0000" } };
     };
   };
 
-  public shared func updateAppSettings(token : Text, termsText : Text, privacyText : Text, stockGainColor : Text, stockLossColor : Text) : async () {
+  public shared ({ caller }) func updateAppSettings(token : Text, termsText : Text, privacyText : Text, stockGainColor : Text, stockLossColor : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can update app settings") };
     appSettings := ?{ termsText; privacyText; stockGainColor; stockLossColor };
@@ -679,31 +682,31 @@ actor {
 
   // ─── ADMIN FUNCTIONS ──────────────────────────────────────────────────────
 
-  public shared func getAdminStats(token : Text) : async AdminStats {
+  public shared ({ caller }) func getAdminStats(token : Text) : async AdminStats {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     { totalUsers = usersByEmail.size(); totalInstruments = instrumentsMap.size(); totalOrders = ordersV2Map.size() };
   };
 
-  public shared func getAllUsers(token : Text) : async [(Text, User)] {
+  public shared ({ caller }) func getAllUsers(token : Text) : async [(Text, User)] {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     usersByEmail.toArray();
   };
 
-  public shared func getAllOrders(token : Text) : async [OrderV2] {
+  public shared ({ caller }) func getAllOrders(token : Text) : async [OrderV2] {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     ordersV2Map.values().toArray();
   };
 
-  public shared func getAllWithdrawalRequests(token : Text) : async [WithdrawalRequestV2] {
+  public shared ({ caller }) func getAllWithdrawalRequests(token : Text) : async [WithdrawalRequestV2] {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     withdrawalRequestsV2Map.values().toArray();
   };
 
-  public shared func approveWithdrawal(token : Text, requestId : Text) : async () {
+  public shared ({ caller }) func approveWithdrawal(token : Text, requestId : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     switch (withdrawalRequestsV2Map.get(requestId)) {
@@ -715,7 +718,7 @@ actor {
     };
   };
 
-  public shared func rejectWithdrawal(token : Text, requestId : Text) : async () {
+  public shared ({ caller }) func rejectWithdrawal(token : Text, requestId : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     switch (withdrawalRequestsV2Map.get(requestId)) {
@@ -733,13 +736,13 @@ actor {
     };
   };
 
-  public shared func getAllDepositRequests(token : Text) : async [DepositRequestV2] {
+  public shared ({ caller }) func getAllDepositRequests(token : Text) : async [DepositRequestV2] {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     depositRequestsV2Map.values().toArray();
   };
 
-  public shared func approveDeposit(token : Text, requestId : Text) : async () {
+  public shared ({ caller }) func approveDeposit(token : Text, requestId : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     switch (depositRequestsV2Map.get(requestId)) {
@@ -757,7 +760,7 @@ actor {
     };
   };
 
-  public shared func rejectDeposit(token : Text, requestId : Text) : async () {
+  public shared ({ caller }) func rejectDeposit(token : Text, requestId : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     switch (depositRequestsV2Map.get(requestId)) {
@@ -769,7 +772,7 @@ actor {
     };
   };
 
-  public shared func adjustUserBalance(token : Text, targetEmail : Text, amount : Float, isDeduct : Bool) : async () {
+  public shared ({ caller }) func adjustUserBalance(token : Text, targetEmail : Text, amount : Float, isDeduct : Bool) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can adjust user balance") };
     switch (usersByEmail.get(targetEmail)) {
@@ -784,14 +787,14 @@ actor {
     };
   };
 
-  public shared func adminResetPassword(token : Text, targetEmail : Text, newPassword : Text) : async () {
+  public shared ({ caller }) func adminResetPassword(token : Text, targetEmail : Text, newPassword : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can reset passwords") };
     if (not usersByEmail.containsKey(targetEmail)) { Runtime.trap("User not found") };
     emailPasswordsMap.add(targetEmail, newPassword);
   };
 
-  public shared func getAllPositions(token : Text) : async [(Text, [PositionSummary])] {
+  public shared ({ caller }) func getAllPositions(token : Text) : async [(Text, [PositionSummary])] {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can view all positions") };
     positionsByEmail.toArray().map(func((userEmail, userPositions)) {
@@ -802,7 +805,7 @@ actor {
     });
   };
 
-  public shared func adminClosePosition(token : Text, targetEmail : Text, symbol : Text) : async () {
+  public shared ({ caller }) func adminClosePosition(token : Text, targetEmail : Text, symbol : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can close positions") };
     switch (positionsByEmail.get(targetEmail)) {
@@ -824,7 +827,7 @@ actor {
     };
   };
 
-  public shared func adminEditPosition(token : Text, targetEmail : Text, symbol : Text, newQuantity : Float, newAvgPrice : Float) : async () {
+  public shared ({ caller }) func adminEditPosition(token : Text, targetEmail : Text, symbol : Text, newQuantity : Float, newAvgPrice : Float) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can edit positions") };
     switch (positionsByEmail.get(targetEmail)) {
@@ -842,7 +845,7 @@ actor {
 
   // ─── CREDIT CODES ADMIN ───────────────────────────────────────────────────
 
-  public shared func createCreditCode(token : Text, code : Text, amount : Float) : async () {
+  public shared ({ caller }) func createCreditCode(token : Text, code : Text, amount : Float) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can create credit codes") };
     if (code.trim(#char ' ').size() == 0) { Runtime.trap("Code cannot be empty") };
@@ -851,13 +854,13 @@ actor {
     creditCodesV2Map.add(code, { code; amount; status = #active; createdAt = Time.now(); redeemedBy = null; redeemedAt = null });
   };
 
-  public shared func getAllCreditCodes(token : Text) : async [CreditCodeV2] {
+  public shared ({ caller }) func getAllCreditCodes(token : Text) : async [CreditCodeV2] {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can access this function") };
     creditCodesV2Map.values().toArray();
   };
 
-  public shared func deleteCreditCode(token : Text, code : Text) : async () {
+  public shared ({ caller }) func deleteCreditCode(token : Text, code : Text) : async () {
     let email = requireEmailFromSession(token);
     if (not isAdminEmail(email)) { Runtime.trap("Only admin can delete credit codes") };
     switch (creditCodesV2Map.get(code)) {
@@ -896,7 +899,7 @@ actor {
     token;
   };
 
-  public query func getProfileByToken(token : Text) : async User {
+  public query ({ caller }) func getProfileByToken(token : Text) : async User {
     switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?email) {
@@ -908,7 +911,7 @@ actor {
     };
   };
 
-  public query func getUserByToken(token : Text) : async (Principal, User) {
+  public query ({ caller }) func getUserByToken(token : Text) : async (Principal, User) {
     switch (emailSessionsMap.get(token)) {
       case (null) { Runtime.trap("Invalid session") };
       case (?email) {

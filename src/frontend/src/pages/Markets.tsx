@@ -16,6 +16,11 @@ import {
   useRemoveFromWatchlist,
 } from "../hooks/useQueries";
 import { categoryLabel } from "../utils/format";
+import {
+  getMarketHoursText,
+  getMarketLabel,
+  getMarketStatus,
+} from "../utils/marketHours";
 
 interface MarketsProps {
   instruments: Instrument[];
@@ -68,8 +73,49 @@ export function Markets({ instruments, liveprices, isLoading }: MarketsProps) {
     }
   };
 
+  const MARKET_CATEGORIES = ["stock", "commodity", "crypto", "forex"] as const;
+
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
+      {/* Market Status Row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {MARKET_CATEGORIES.map((cat) => {
+          const status = getMarketStatus(cat);
+          const label = getMarketLabel(cat);
+          const hours = getMarketHoursText(cat);
+          return (
+            <div
+              key={cat}
+              className="bg-card border border-border rounded-lg p-3 flex flex-col gap-1.5"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs font-semibold text-foreground truncate">
+                  {label}
+                </span>
+                {status === "always_open" && (
+                  <Badge className="text-[9px] px-1.5 py-0 h-4 bg-blue-500/15 text-blue-400 border border-blue-400/20 shrink-0">
+                    24/7
+                  </Badge>
+                )}
+                {status === "open" && (
+                  <Badge className="text-[9px] px-1.5 py-0 h-4 bg-gain-muted text-gain border border-gain/20 shrink-0">
+                    Open
+                  </Badge>
+                )}
+                {status === "closed" && (
+                  <Badge className="text-[9px] px-1.5 py-0 h-4 bg-muted text-muted-foreground border border-border shrink-0">
+                    Closed
+                  </Badge>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                {hours}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Filter row */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
         {/* Category tabs */}

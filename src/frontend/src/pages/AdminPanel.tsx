@@ -66,7 +66,6 @@ import { useActor } from "../hooks/useActor";
 import {
   Category,
   CreditCodeStatus,
-  DepositStatus,
   type Instrument,
   OrderStatus,
   OrderType,
@@ -75,11 +74,13 @@ import {
   WithdrawalMethod,
 } from "../backend.d";
 
-// WithdrawalStatus is used in the backend but not yet exported as enum — define locally
-enum WithdrawalStatus {
-  pending = "pending",
-  approved = "approved",
-  rejected = "rejected",
+// Motoko variants are deserialized as objects like { pending: null } not plain strings.
+// This helper extracts the key from both string and object forms.
+function getStatusKey(status: unknown): string {
+  if (typeof status === "string") return status;
+  if (typeof status === "object" && status !== null)
+    return Object.keys(status)[0] ?? "";
+  return "";
 }
 import {
   useApproveDeposit,
@@ -2045,23 +2046,24 @@ function SettingsTab() {
 
 // ─── Withdrawals Tab ──────────────────────────────────────────────────────
 
-function WithdrawalStatusBadge({ status }: { status: WithdrawalStatus }) {
-  const variants: Record<WithdrawalStatus, { label: string; cls: string }> = {
-    [WithdrawalStatus.pending]: {
+function WithdrawalStatusBadge({ status }: { status: unknown }) {
+  const key = getStatusKey(status);
+  const variants: Record<string, { label: string; cls: string }> = {
+    pending: {
       label: "Pending",
       cls: "bg-gold-muted text-gold border-gold/20",
     },
-    [WithdrawalStatus.approved]: {
+    approved: {
       label: "Approved",
       cls: "bg-gain-muted text-gain border-gain/20",
     },
-    [WithdrawalStatus.rejected]: {
+    rejected: {
       label: "Rejected",
       cls: "bg-loss-muted text-loss border-loss/20",
     },
   };
-  const v = variants[status] ?? {
-    label: status,
+  const v = variants[key] ?? {
+    label: key || String(status),
     cls: "bg-muted text-muted-foreground border-border",
   };
   return (
@@ -2230,7 +2232,7 @@ function WithdrawalsTab() {
                       {formatTimestamp(wr.requestTime)}
                     </TableCell>
                     <TableCell>
-                      {wr.status === WithdrawalStatus.pending && (
+                      {getStatusKey(wr.status) === "pending" && (
                         <div className="flex justify-end gap-1.5">
                           <Button
                             size="sm"
@@ -2273,23 +2275,24 @@ function WithdrawalsTab() {
 
 // ─── Deposits Tab ─────────────────────────────────────────────────────────
 
-function DepositStatusBadge({ status }: { status: DepositStatus }) {
-  const variants: Record<DepositStatus, { label: string; cls: string }> = {
-    [DepositStatus.pending]: {
+function DepositStatusBadge({ status }: { status: unknown }) {
+  const key = getStatusKey(status);
+  const variants: Record<string, { label: string; cls: string }> = {
+    pending: {
       label: "Pending",
       cls: "bg-gold-muted text-gold border-gold/20",
     },
-    [DepositStatus.approved]: {
+    approved: {
       label: "Approved",
       cls: "bg-gain-muted text-gain border-gain/20",
     },
-    [DepositStatus.rejected]: {
+    rejected: {
       label: "Rejected",
       cls: "bg-loss-muted text-loss border-loss/20",
     },
   };
-  const v = variants[status] ?? {
-    label: status,
+  const v = variants[key] ?? {
+    label: key || String(status),
     cls: "bg-muted text-muted-foreground border-border",
   };
   return (
@@ -2440,7 +2443,7 @@ function DepositsTab() {
                       {formatTimestamp(dr.requestTime)}
                     </TableCell>
                     <TableCell>
-                      {dr.status === DepositStatus.pending && (
+                      {getStatusKey(dr.status) === "pending" && (
                         <div className="flex justify-end gap-1.5">
                           <Button
                             size="sm"

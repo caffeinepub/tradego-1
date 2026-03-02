@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Loader2, Target, TrendingDown } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { type Instrument, OrderType, Side, TradeType } from "../backend.d";
@@ -26,6 +26,7 @@ interface TradeDialogProps {
   livePrice?: LivePrice;
   open: boolean;
   onClose: () => void;
+  defaultSide?: Side;
 }
 
 export function TradeDialog({
@@ -33,12 +34,15 @@ export function TradeDialog({
   livePrice,
   open,
   onClose,
+  defaultSide,
 }: TradeDialogProps) {
-  const [side, setSide] = useState<Side>(Side.buy);
+  const [side, setSide] = useState<Side>(defaultSide ?? Side.buy);
   const [tradeType, setTradeType] = useState<TradeType>(TradeType.intraday);
   const [orderType, setOrderType] = useState<OrderType>(OrderType.market);
   const [quantity, setQuantity] = useState("1");
   const [limitPrice, setLimitPrice] = useState("");
+  const [stopLossPrice, setStopLossPrice] = useState("");
+  const [targetPrice, setTargetPrice] = useState("");
 
   const placeOrder = usePlaceOrder();
 
@@ -54,17 +58,48 @@ export function TradeDialog({
   const margin = calculateMargin(execPrice, qty, tradeType);
   const leverage = getLeverage(tradeType);
 
+  const slPrice = Number.parseFloat(stopLossPrice);
+  const tpPrice = Number.parseFloat(targetPrice);
+
   const handlePlaceOrder = async () => {
     if (!qty || qty <= 0) {
-      toast.error("Enter a valid quantity");
+      toast.error("Valid quantity enter karein");
       return;
     }
     if (
       orderType !== OrderType.market &&
       (!limitPrice || Number.parseFloat(limitPrice) <= 0)
     ) {
-      toast.error("Enter a valid price for limit/stop-loss order");
+      toast.error("Limit/Stop-Loss order ke liye valid price enter karein");
       return;
+    }
+    if (stopLossPrice && slPrice > 0) {
+      if (side === Side.buy && slPrice >= execPrice) {
+        toast.error(
+          "Buy order mein Stop Loss price, entry price se kam honi chahiye",
+        );
+        return;
+      }
+      if (side === Side.sell && slPrice <= execPrice) {
+        toast.error(
+          "Sell order mein Stop Loss price, entry price se zyada honi chahiye",
+        );
+        return;
+      }
+    }
+    if (targetPrice && tpPrice > 0) {
+      if (side === Side.buy && tpPrice <= execPrice) {
+        toast.error(
+          "Buy order mein Target price, entry price se zyada honi chahiye",
+        );
+        return;
+      }
+      if (side === Side.sell && tpPrice >= execPrice) {
+        toast.error(
+          "Sell order mein Target price, entry price se kam honi chahiye",
+        );
+        return;
+      }
     }
 
     try {
@@ -76,10 +111,16 @@ export function TradeDialog({
         tradeType,
         side,
       });
-      toast.success(`Order placed! ID: ${String(orderId).slice(0, 8)}...`);
+
+      let successMsg = `Order placed! ID: ${String(orderId).slice(0, 8)}...`;
+      if (stopLossPrice && slPrice > 0)
+        successMsg += ` | SL: ₹${slPrice.toFixed(2)}`;
+      if (targetPrice && tpPrice > 0)
+        successMsg += ` | TP: ₹${tpPrice.toFixed(2)}`;
+      toast.success(successMsg);
       onClose();
     } catch (_err) {
-      toast.error("Failed to place order. Check your margin balance.");
+      toast.error("Order place karne mein error. Margin balance check karein.");
     }
   };
 
@@ -87,7 +128,7 @@ export function TradeDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="bg-card border-border max-w-sm">
+      <DialogContent className="bg-card border-border max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="font-mono font-bold text-foreground">
@@ -115,9 +156,13 @@ export function TradeDialog({
 
         <div className="space-y-4">
           {/* BUY / SELL toggle */}
-          <div className="grid grid-cols-2 gap-1.5 p-1 bg-secondary/50 rounded-md">
+          <div
+            className="grid grid-cols-2 gap-1.5 p-1 bg-secondary/50 rounded-md"
+            data-ocid="trade_dialog.side.toggle"
+          >
             <button
               type="button"
+              data-ocid="trade_dialog.buy_button"
               onClick={() => setSide(Side.buy)}
               className={[
                 "py-2 rounded text-sm font-bold transition-all",
@@ -130,6 +175,7 @@ export function TradeDialog({
             </button>
             <button
               type="button"
+              data-ocid="trade_dialog.sell_button"
               onClick={() => setSide(Side.sell)}
               className={[
                 "py-2 rounded text-sm font-bold transition-all",
@@ -151,6 +197,7 @@ export function TradeDialog({
               <button
                 type="button"
                 onClick={() => setTradeType(TradeType.intraday)}
+                data-ocid="trade_dialog.intraday_button"
                 className={[
                   "py-1.5 rounded text-xs font-semibold transition-all",
                   tradeType === TradeType.intraday
@@ -164,6 +211,7 @@ export function TradeDialog({
               <button
                 type="button"
                 onClick={() => setTradeType(TradeType.carryForward)}
+                data-ocid="trade_dialog.carry_forward_button"
                 className={[
                   "py-1.5 rounded text-xs font-semibold transition-all",
                   tradeType === TradeType.carryForward
@@ -193,6 +241,7 @@ export function TradeDialog({
                 <button
                   key={value}
                   type="button"
+                  data-ocid={`trade_dialog.order_type_${value}_button`}
                   onClick={() => setOrderType(value)}
                   className={[
                     "py-1.5 rounded text-xs font-semibold transition-all",
@@ -217,6 +266,7 @@ export function TradeDialog({
             </Label>
             <Input
               id="quantity"
+              data-ocid="trade_dialog.quantity.input"
               type="number"
               min="1"
               step="1"
@@ -243,6 +293,7 @@ export function TradeDialog({
                 </span>
                 <Input
                   id="limitPrice"
+                  data-ocid="trade_dialog.limit_price.input"
                   type="number"
                   step="0.01"
                   value={limitPrice}
@@ -253,6 +304,118 @@ export function TradeDialog({
               </div>
             </div>
           )}
+
+          {/* ── Risk Management: Stop Loss + Target Price ── */}
+          <div className="rounded-md border border-border/60 bg-secondary/20 p-3 space-y-3">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
+              Risk Management (Optional)
+            </p>
+
+            {/* Stop Loss */}
+            <div>
+              <Label
+                htmlFor="stopLossPrice"
+                className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5"
+              >
+                <TrendingDown className="w-3 h-3 text-loss" />
+                Stop Loss Price
+                {slPrice > 0 && (
+                  <span className="text-loss font-mono ml-auto text-[10px]">
+                    ₹{slPrice.toFixed(2)}
+                  </span>
+                )}
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">
+                  ₹
+                </span>
+                <Input
+                  id="stopLossPrice"
+                  data-ocid="trade_dialog.stop_loss.input"
+                  type="number"
+                  step="0.01"
+                  value={stopLossPrice}
+                  onChange={(e) => setStopLossPrice(e.target.value)}
+                  placeholder={
+                    isBuy
+                      ? (currentPrice * 0.97).toFixed(2)
+                      : (currentPrice * 1.03).toFixed(2)
+                  }
+                  className="pl-7 font-mono bg-input border-border text-foreground text-sm h-9"
+                />
+              </div>
+              {slPrice > 0 && execPrice > 0 && (
+                <p className="text-[10px] text-loss mt-0.5 font-mono">
+                  Risk:{" "}
+                  {isBuy
+                    ? `₹${Math.abs((execPrice - slPrice) * qty).toFixed(2)} (${(Math.abs((execPrice - slPrice) / execPrice) * 100).toFixed(2)}%)`
+                    : `₹${Math.abs((slPrice - execPrice) * qty).toFixed(2)} (${(Math.abs((slPrice - execPrice) / execPrice) * 100).toFixed(2)}%)`}
+                </p>
+              )}
+            </div>
+
+            {/* Target Price */}
+            <div>
+              <Label
+                htmlFor="targetPrice"
+                className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5"
+              >
+                <Target className="w-3 h-3 text-gain" />
+                Target Price
+                {tpPrice > 0 && (
+                  <span className="text-gain font-mono ml-auto text-[10px]">
+                    ₹{tpPrice.toFixed(2)}
+                  </span>
+                )}
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-mono">
+                  ₹
+                </span>
+                <Input
+                  id="targetPrice"
+                  data-ocid="trade_dialog.target_price.input"
+                  type="number"
+                  step="0.01"
+                  value={targetPrice}
+                  onChange={(e) => setTargetPrice(e.target.value)}
+                  placeholder={
+                    isBuy
+                      ? (currentPrice * 1.03).toFixed(2)
+                      : (currentPrice * 0.97).toFixed(2)
+                  }
+                  className="pl-7 font-mono bg-input border-border text-foreground text-sm h-9"
+                />
+              </div>
+              {tpPrice > 0 && execPrice > 0 && (
+                <p className="text-[10px] text-gain mt-0.5 font-mono">
+                  Profit:{" "}
+                  {isBuy
+                    ? `₹${Math.abs((tpPrice - execPrice) * qty).toFixed(2)} (${(Math.abs((tpPrice - execPrice) / execPrice) * 100).toFixed(2)}%)`
+                    : `₹${Math.abs((execPrice - tpPrice) * qty).toFixed(2)} (${(Math.abs((execPrice - tpPrice) / execPrice) * 100).toFixed(2)}%)`}
+                </p>
+              )}
+            </div>
+
+            {/* Risk/Reward ratio */}
+            {slPrice > 0 && tpPrice > 0 && execPrice > 0 && (
+              <div className="bg-card/60 rounded p-2 text-[10px] font-mono border border-border/50">
+                <span className="text-muted-foreground">Risk:Reward = </span>
+                <span className="text-foreground font-bold">
+                  1 :{" "}
+                  {isBuy
+                    ? (
+                        Math.abs(tpPrice - execPrice) /
+                        Math.max(0.01, Math.abs(execPrice - slPrice))
+                      ).toFixed(2)
+                    : (
+                        Math.abs(execPrice - tpPrice) /
+                        Math.max(0.01, Math.abs(slPrice - execPrice))
+                      ).toFixed(2)}
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Calculated summary */}
           <div className="bg-secondary/30 rounded-md p-3 space-y-1.5 text-xs font-mono">
@@ -281,6 +444,7 @@ export function TradeDialog({
           {/* Place Order */}
           <Button
             type="button"
+            data-ocid="trade_dialog.place_order.submit_button"
             onClick={handlePlaceOrder}
             disabled={placeOrder.isPending}
             className={[

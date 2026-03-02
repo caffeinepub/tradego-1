@@ -44,6 +44,33 @@ function AppContent() {
   );
   const [seedAttempted, setSeedAttempted] = useState(false);
 
+  // Actor failure detection — if actor stays null after 8 seconds of not fetching
+  const [actorFailed, setActorFailed] = useState(false);
+  const actorFailedRef = useRef(false);
+
+  useEffect(() => {
+    // Reset failure state when actor becomes available
+    if (actor) {
+      setActorFailed(false);
+      actorFailedRef.current = false;
+      return;
+    }
+    // If actor is null and not fetching, start a failure timer
+    if (!actor && !actorFetching) {
+      const timer = setTimeout(() => {
+        if (!actorRef.current) {
+          setActorFailed(true);
+          actorFailedRef.current = true;
+        }
+      }, 8_000);
+      return () => clearTimeout(timer);
+    }
+  }, [actor, actorFetching]);
+
+  const handleRetryActor = useCallback(() => {
+    window.location.reload();
+  }, []);
+
   // Auth state — if no token is stored, skip verification immediately
   const [sessionVerified, setSessionVerified] = useState(false);
   const [sessionVerifying, setSessionVerifying] = useState(() => {
@@ -75,13 +102,48 @@ function AppContent() {
       return;
     }
 
-    // Token exists but actor not ready yet — keep verifying state (spinner shows)
-    if (!actor || actorFetching) return;
+    // Token exists but actor not ready yet — wait, but with a short timeout
+    if (!actor && actorFetching) {
+      // Still loading — keep spinner, timeout will handle the stuck case
+      const timeout = setTimeout(() => {
+        // Actor took too long — drop back to login
+        logout();
+        setSessionVerifying(false);
+        setSessionVerified(false);
+      }, 6_000);
+      return () => clearTimeout(timeout);
+    }
+
+    // Actor not available and not fetching — it either failed or hasn't started
+    // Give it a short grace period then drop to login
+    if (!actor && !actorFetching) {
+      const timeout = setTimeout(() => {
+        if (!actorRef.current) {
+          logout();
+          setSessionVerifying(false);
+          setSessionVerified(false);
+        }
+      }, 3_000);
+      return () => clearTimeout(timeout);
+    }
+
+    // TypeScript: at this point actor must be non-null (checked above)
+    if (!actor) return;
 
     setSessionVerifying(true);
+    // 8-second timeout on the actual session check
+    const timeoutId = setTimeout(() => {
+      logout();
+      setCurrentUser(null);
+      setIsAdmin(false);
+      setSessionVerified(false);
+      setSessionVerifying(false);
+    }, 8_000);
+
     actor
       .getSessionFull(token)
       .then((result) => {
+        clearTimeout(timeoutId);
         if (!result) {
           // Token invalid or expired
           logout();
@@ -97,6 +159,7 @@ function AppContent() {
         setSessionVerifying(false);
       })
       .catch(() => {
+        clearTimeout(timeoutId);
         // Token invalid or expired
         logout();
         setCurrentUser(null);
@@ -104,6 +167,7 @@ function AppContent() {
         setSessionVerified(false);
         setSessionVerifying(false);
       });
+    return () => clearTimeout(timeoutId);
   }, [token, actor, actorFetching, logout]);
 
   // Seed instruments if empty
@@ -154,42 +218,83 @@ function AppContent() {
     NonNullable<typeof actor>
   > => {
     if (actorRef.current) return actorRef.current;
-    // Poll up to 10 seconds for the actor to become available
-    for (let i = 0; i < 20; i++) {
+    // If actor already failed, throw immediately with a helpful message
+    if (actorFailedRef.current) {
+      throw new Error(
+        "Server connection failed. Please tap 'Retry Connection' below.",
+      );
+    }
+    // Poll up to 8 seconds for the actor to become available
+    for (let i = 0; i < 16; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (actorRef.current) return actorRef.current;
+      if (actorFailedRef.current) {
+        throw new Error(
+          "Server connection failed. Please tap 'Retry Connection' below.",
+        );
+      }
     }
     throw new Error(
-      "Unable to connect to the server. Please refresh and try again.",
+      "Unable to connect to the server. Please check your connection and try again.",
     );
+  }, []);
+
+  // Strip IC canister trap message prefixes so users see clean error text
+  const extractErrorMessage = useCallback((err: unknown): string => {
+    const raw = err instanceof Error ? err.message : String(err);
+    // IC canister errors look like: "Call failed: ... Canister ... trapped: <actual message>"
+    const trapIdx = raw.lastIndexOf("trapped: ");
+    if (trapIdx !== -1) return raw.slice(trapIdx + "trapped: ".length).trim();
+    // Another common pattern: "Error: ... <actual message>"
+    const colonIdx = raw.lastIndexOf(": ");
+    if (colonIdx !== -1 && colonIdx > 20) return raw.slice(colonIdx + 2).trim();
+    return raw;
   }, []);
 
   const handleLogin = useCallback(
     async (email: string, password: string) => {
       const a = await waitForActor();
-      const [newToken, user, adminStatus] = await a.loginFull(email, password);
-      setToken(newToken);
-      setCurrentUser(user);
-      setIsAdmin(adminStatus);
-      setSessionVerified(true);
-      return { user, isAdmin: adminStatus };
+      try {
+        const [newToken, user, adminStatus] = await a.loginFull(
+          email,
+          password,
+        );
+        setToken(newToken);
+        setCurrentUser(user);
+        setIsAdmin(adminStatus);
+        setSessionVerified(true);
+        return { user, isAdmin: adminStatus };
+      } catch (err) {
+        throw new Error(extractErrorMessage(err));
+      }
     },
-    [waitForActor, setToken],
+    [waitForActor, setToken, extractErrorMessage],
   );
 
   const handleRegister = useCallback(
     async (name: string, email: string, mobile: string, password: string) => {
       const a = await waitForActor();
-      await a.registerUserWithPassword(name, email, mobile, password);
+      try {
+        await a.registerUserWithPassword(name, email, mobile, password);
+      } catch (err) {
+        throw new Error(extractErrorMessage(err));
+      }
       // Auto-login after registration using single call
-      const [newToken, user, adminStatus] = await a.loginFull(email, password);
-      setToken(newToken);
-      setCurrentUser(user);
-      setIsAdmin(adminStatus);
-      setSessionVerified(true);
-      toast.success("Account created! Welcome to TradeGo.1");
+      try {
+        const [newToken, user, adminStatus] = await a.loginFull(
+          email,
+          password,
+        );
+        setToken(newToken);
+        setCurrentUser(user);
+        setIsAdmin(adminStatus);
+        setSessionVerified(true);
+        toast.success("Account created! Welcome to TradeGo.1");
+      } catch (err) {
+        throw new Error(extractErrorMessage(err));
+      }
     },
-    [waitForActor, setToken],
+    [waitForActor, setToken, extractErrorMessage],
   );
 
   const handleLogout = useCallback(async () => {
@@ -236,6 +341,8 @@ function AppContent() {
           onLogin={handleLogin}
           onRegister={handleRegister}
           isActorLoading={!actor || actorFetching}
+          actorFailed={actorFailed}
+          onRetryActor={handleRetryActor}
         />
         <Toaster richColors theme="dark" position="top-right" />
       </>

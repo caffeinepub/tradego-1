@@ -16,8 +16,10 @@ import {
   HelpCircle,
   Loader2,
   Lock,
+  RefreshCw,
   Shield,
   TrendingUp,
+  WifiOff,
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -36,12 +38,16 @@ interface RegistrationProps {
     password: string,
   ) => Promise<void>;
   isActorLoading?: boolean;
+  actorFailed?: boolean;
+  onRetryActor?: () => void;
 }
 
 export function Registration({
   onLogin,
   onRegister,
   isActorLoading = false,
+  actorFailed = false,
+  onRetryActor,
 }: RegistrationProps) {
   // Sign Up state
   const [name, setName] = useState("");
@@ -127,6 +133,13 @@ export function Registration({
       const message = err instanceof Error ? err.message : String(err);
       const lowerMsg = message.toLowerCase();
       if (
+        lowerMsg.includes("connection failed") ||
+        lowerMsg.includes("retry connection")
+      ) {
+        toast.error(
+          "Server connection failed. Please tap 'Retry Connection' at the top.",
+        );
+      } else if (
         lowerMsg.includes("already registered") ||
         lowerMsg.includes("already exists")
       ) {
@@ -136,9 +149,7 @@ export function Registration({
         lowerMsg.includes("server") ||
         lowerMsg.includes("loading")
       ) {
-        toast.error(
-          "Connecting to server... Please wait a moment and try again.",
-        );
+        toast.error("Unable to connect. Please wait a moment and try again.");
       } else if (lowerMsg.includes("empty") || lowerMsg.includes("invalid")) {
         toast.error(message);
       } else {
@@ -170,6 +181,13 @@ export function Registration({
       const message = err instanceof Error ? err.message : String(err);
       const lowerMsg = message.toLowerCase();
       if (
+        lowerMsg.includes("connection failed") ||
+        lowerMsg.includes("retry connection")
+      ) {
+        setSignInError(
+          "Server connection failed. Please tap 'Retry Connection' at the top.",
+        );
+      } else if (
         lowerMsg.includes("invalid") ||
         lowerMsg.includes("not found") ||
         lowerMsg.includes("wrong") ||
@@ -184,7 +202,7 @@ export function Registration({
         lowerMsg.includes("loading")
       ) {
         setSignInError(
-          "Connecting to server... Please wait a moment and try again.",
+          "Unable to connect. Please wait a moment and try again.",
         );
       } else {
         setSignInError(
@@ -219,6 +237,31 @@ export function Registration({
       />
 
       <div className="relative z-10 w-full max-w-md animate-fade-in-up">
+        {/* Server connection failure banner */}
+        {actorFailed && (
+          <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
+            <WifiOff className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-destructive leading-snug">
+                Server connection failed
+              </p>
+              <p className="text-xs text-destructive/80 mt-0.5">
+                Please check your internet connection and try again.
+              </p>
+            </div>
+            {onRetryActor && (
+              <button
+                type="button"
+                onClick={onRetryActor}
+                className="flex items-center gap-1.5 text-xs font-semibold text-destructive border border-destructive/40 rounded-md px-2.5 py-1.5 hover:bg-destructive/20 transition-colors shrink-0"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
         {/* TradeGo.1 Logo Banner */}
         <div className="flex justify-center mb-6">
           <img
@@ -329,26 +372,40 @@ export function Registration({
                       </div>
                     )}
 
-                    {isActorLoading && !isSigningIn && (
-                      <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Connecting to server...
-                      </p>
-                    )}
                     <Button
                       type="submit"
-                      disabled={isSigningIn}
-                      className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2"
+                      disabled={isSigningIn || isActorLoading || actorFailed}
+                      className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2 disabled:opacity-50"
                     >
-                      {isSigningIn ? (
+                      {isActorLoading && !isSigningIn && !actorFailed ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : isSigningIn ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Signing In...
+                        </>
+                      ) : actorFailed ? (
+                        <>
+                          <WifiOff className="mr-2 h-4 w-4" />
+                          Connection Failed
                         </>
                       ) : (
                         "Sign In →"
                       )}
                     </Button>
+
+                    {/* Connecting status indicator */}
+                    {isActorLoading && !actorFailed && (
+                      <div className="flex items-center justify-center gap-2 mt-2">
+                        <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
+                        <span className="text-xs text-amber-500/80">
+                          Connecting to server...
+                        </span>
+                      </div>
+                    )}
                   </form>
 
                   {/* Security note */}
@@ -481,26 +538,40 @@ export function Registration({
                       />
                     </div>
 
-                    {isActorLoading && !isRegistering && (
-                      <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Connecting to server...
-                      </p>
-                    )}
                     <Button
                       type="submit"
-                      disabled={isRegistering}
-                      className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2"
+                      disabled={isRegistering || isActorLoading || actorFailed}
+                      className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2 disabled:opacity-50"
                     >
-                      {isRegistering ? (
+                      {isActorLoading && !isRegistering && !actorFailed ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : isRegistering ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Creating Account...
+                        </>
+                      ) : actorFailed ? (
+                        <>
+                          <WifiOff className="mr-2 h-4 w-4" />
+                          Connection Failed
                         </>
                       ) : (
                         "Create Account →"
                       )}
                     </Button>
+
+                    {/* Connecting status indicator */}
+                    {isActorLoading && !actorFailed && (
+                      <div className="flex items-center justify-center gap-2 mt-2">
+                        <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
+                        <span className="text-xs text-amber-500/80">
+                          Connecting to server...
+                        </span>
+                      </div>
+                    )}
                   </form>
                 </CardContent>
               </TabsContent>

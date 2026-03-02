@@ -43,22 +43,18 @@ export interface PortfolioSummary {
     currentValue: number;
     marginUsed: number;
 }
-export interface CreditCodeV2 {
-    redeemedAt?: Time;
-    redeemedBy?: string;
-    status: CreditCodeStatus;
-    code: string;
-    createdAt: Time;
-    amount: number;
+export interface AppSettings {
+    privacyText: string;
+    termsText: string;
+    stockLossColor: string;
+    stockGainColor: string;
 }
-/** @deprecated Use CreditCodeV2 */
-export type CreditCode = CreditCodeV2;
 export interface OrderV2 {
     id: string;
     status: OrderStatus;
+    userEmail: string;
     tradeType: TradeType;
     side: Side;
-    userEmail: string;
     orderType: OrderType;
     marginUsed: number;
     timestamp: Time;
@@ -66,28 +62,13 @@ export interface OrderV2 {
     price: number;
     symbol: string;
 }
-/** @deprecated Use OrderV2 */
-export type Order = OrderV2;
-export interface AppSettings {
-    privacyText: string;
-    termsText: string;
-    stockLossColor: string;
-    stockGainColor: string;
-}
 export interface PaymentSettingsV2 {
-    qrCodeData: string;
-    upiId: string;
-    bankAccountHolder: string;
-    bankName: string;
     bankAccountNumber: string;
+    qrCodeData: string;
+    bankAccountHolder: string;
     bankIfsc: string;
-}
-/** @deprecated Use PaymentSettingsV2 */
-export type PaymentSettings = PaymentSettingsV2;
-export interface AdminStats {
-    totalOrders: bigint;
-    totalInstruments: bigint;
-    totalUsers: bigint;
+    bankName: string;
+    upiId: string;
 }
 export interface DepositRequestV2 {
     id: string;
@@ -97,13 +78,24 @@ export interface DepositRequestV2 {
     amount: number;
     requestTime: Time;
 }
-/** @deprecated Use DepositRequestV2 */
-export type DepositRequest = DepositRequestV2;
+export interface AdminStats {
+    totalOrders: bigint;
+    totalInstruments: bigint;
+    totalUsers: bigint;
+}
+export interface CreditCodeV2 {
+    redeemedAt?: Time;
+    redeemedBy?: string;
+    status: CreditCodeStatus;
+    code: string;
+    createdAt: Time;
+    amount: number;
+}
 export interface WithdrawalRequestV2 {
     id: string;
     status: WithdrawalStatus;
-    ifscCode?: string;
     userEmail: string;
+    ifscCode?: string;
     bankName?: string;
     upiId?: string;
     withdrawalMethod: WithdrawalMethod;
@@ -111,8 +103,6 @@ export interface WithdrawalRequestV2 {
     amount: number;
     requestTime: Time;
 }
-/** @deprecated Use WithdrawalRequestV2 */
-export type WithdrawalRequest = WithdrawalRequestV2;
 export enum Category {
     forex = "forex",
     stock = "stock",

@@ -1,6 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useActor } from "./hooks/useActor";
@@ -32,6 +32,11 @@ type Tab =
 function AppContent() {
   const { token, setToken, logout } = useSession();
   const { actor, isFetching: actorFetching } = useActor();
+  // Keep a ref so polling closures always see the latest actor value
+  const actorRef = useRef(actor);
+  useEffect(() => {
+    actorRef.current = actor;
+  }, [actor]);
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [tradeInstrument, setTradeInstrument] = useState<Instrument | null>(
@@ -39,9 +44,15 @@ function AppContent() {
   );
   const [seedAttempted, setSeedAttempted] = useState(false);
 
-  // Auth state
+  // Auth state — if no token is stored, skip verification immediately
   const [sessionVerified, setSessionVerified] = useState(false);
-  const [sessionVerifying, setSessionVerifying] = useState(true);
+  const [sessionVerifying, setSessionVerifying] = useState(() => {
+    try {
+      return !!localStorage.getItem("tradego_session_token");
+    } catch {
+      return false;
+    }
+  });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
 
@@ -54,9 +65,8 @@ function AppContent() {
   const liveprices = useLivePrices(instruments);
 
   // On mount / token change: verify session via backend
+  // If there's no token, resolve immediately without waiting for actor
   useEffect(() => {
-    if (!actor || actorFetching) return;
-
     if (!token) {
       setSessionVerified(false);
       setSessionVerifying(false);
@@ -64,6 +74,9 @@ function AppContent() {
       setIsAdmin(false);
       return;
     }
+
+    // Token exists but actor not ready yet — keep verifying state (spinner shows)
+    if (!actor || actorFetching) return;
 
     setSessionVerifying(true);
     actor
@@ -137,38 +150,46 @@ function AppContent() {
     seedInstruments,
   ]);
 
+  const waitForActor = useCallback(async (): Promise<
+    NonNullable<typeof actor>
+  > => {
+    if (actorRef.current) return actorRef.current;
+    // Poll up to 10 seconds for the actor to become available
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (actorRef.current) return actorRef.current;
+    }
+    throw new Error(
+      "Unable to connect to the server. Please refresh and try again.",
+    );
+  }, []);
+
   const handleLogin = useCallback(
     async (email: string, password: string) => {
-      if (!actor) throw new Error("Not ready");
-      const [newToken, user, adminStatus] = await actor.loginFull(
-        email,
-        password,
-      );
+      const a = await waitForActor();
+      const [newToken, user, adminStatus] = await a.loginFull(email, password);
       setToken(newToken);
       setCurrentUser(user);
       setIsAdmin(adminStatus);
       setSessionVerified(true);
       return { user, isAdmin: adminStatus };
     },
-    [actor, setToken],
+    [waitForActor, setToken],
   );
 
   const handleRegister = useCallback(
     async (name: string, email: string, mobile: string, password: string) => {
-      if (!actor) throw new Error("Not ready");
-      await actor.registerUserWithPassword(name, email, mobile, password);
+      const a = await waitForActor();
+      await a.registerUserWithPassword(name, email, mobile, password);
       // Auto-login after registration using single call
-      const [newToken, user, adminStatus] = await actor.loginFull(
-        email,
-        password,
-      );
+      const [newToken, user, adminStatus] = await a.loginFull(email, password);
       setToken(newToken);
       setCurrentUser(user);
       setIsAdmin(adminStatus);
       setSessionVerified(true);
       toast.success("Account created! Welcome to TradeGo.1");
     },
-    [actor, setToken],
+    [waitForActor, setToken],
   );
 
   const handleLogout = useCallback(async () => {
@@ -214,7 +235,7 @@ function AppContent() {
         <Registration
           onLogin={handleLogin}
           onRegister={handleRegister}
-          isActorReady={!!actor && !actorFetching}
+          isActorLoading={!actor || actorFetching}
         />
         <Toaster richColors theme="dark" position="top-right" />
       </>

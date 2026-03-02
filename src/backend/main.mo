@@ -1,16 +1,14 @@
 import Array "mo:core/Array";
 import Map "mo:core/Map";
 import Set "mo:core/Set";
+import Order "mo:core/Order";
+import Runtime "mo:core/Runtime";
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import Iter "mo:core/Iter";
-import Order "mo:core/Order";
-import Runtime "mo:core/Runtime";
-import Time "mo:core/Time";
 import Principal "mo:core/Principal";
+import Time "mo:core/Time";
 import Float "mo:core/Float";
-
-
 
 actor {
   // TYPES

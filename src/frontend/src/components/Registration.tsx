@@ -35,13 +35,13 @@ interface RegistrationProps {
     mobile: string,
     password: string,
   ) => Promise<void>;
-  isActorReady: boolean;
+  isActorLoading?: boolean;
 }
 
 export function Registration({
   onLogin,
   onRegister,
-  isActorReady,
+  isActorLoading = false,
 }: RegistrationProps) {
   // Sign Up state
   const [name, setName] = useState("");
@@ -114,11 +114,6 @@ export function Registration({
       toast.error("Passwords do not match");
       return;
     }
-    if (!isActorReady) {
-      toast.error("App is loading, please wait...");
-      return;
-    }
-
     setIsRegistering(true);
     try {
       await onRegister(
@@ -129,15 +124,25 @@ export function Registration({
       );
       // Success — App.tsx will handle state transition
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Registration failed";
+      const message = err instanceof Error ? err.message : String(err);
+      const lowerMsg = message.toLowerCase();
       if (
-        message.toLowerCase().includes("already registered") ||
-        message.toLowerCase().includes("already exists")
+        lowerMsg.includes("already registered") ||
+        lowerMsg.includes("already exists")
       ) {
         toast.error("This email is already registered. Please sign in.");
+      } else if (
+        lowerMsg.includes("unable to connect") ||
+        lowerMsg.includes("server") ||
+        lowerMsg.includes("loading")
+      ) {
+        toast.error(
+          "Connecting to server... Please wait a moment and try again.",
+        );
+      } else if (lowerMsg.includes("empty") || lowerMsg.includes("invalid")) {
+        toast.error(message);
       } else {
-        toast.error("Registration failed. Please try again.");
+        toast.error(message || "Registration failed. Please try again.");
       }
     } finally {
       setIsRegistering(false);
@@ -157,28 +162,34 @@ export function Registration({
       toast.error("Please enter your password");
       return;
     }
-    if (!isActorReady) {
-      toast.error("App is loading, please wait...");
-      return;
-    }
-
     setIsSigningIn(true);
     try {
       await onLogin(signInEmail.trim().toLowerCase(), signInPassword);
       // Success — App.tsx handles state transition
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
+      const message = err instanceof Error ? err.message : String(err);
+      const lowerMsg = message.toLowerCase();
       if (
-        message.toLowerCase().includes("invalid") ||
-        message.toLowerCase().includes("not found") ||
-        message.toLowerCase().includes("wrong")
+        lowerMsg.includes("invalid") ||
+        lowerMsg.includes("not found") ||
+        lowerMsg.includes("wrong") ||
+        lowerMsg.includes("incorrect")
       ) {
         setSignInError("Invalid email or password. Please try again.");
-      } else if (message.toLowerCase().includes("not registered")) {
+      } else if (lowerMsg.includes("not registered")) {
         setSignInError("No account found with this email. Please sign up.");
+      } else if (
+        lowerMsg.includes("unable to connect") ||
+        lowerMsg.includes("server") ||
+        lowerMsg.includes("loading")
+      ) {
+        setSignInError(
+          "Connecting to server... Please wait a moment and try again.",
+        );
       } else {
         setSignInError(
-          "Sign in failed. Please check your credentials and try again.",
+          message ||
+            "Sign in failed. Please check your credentials and try again.",
         );
       }
     } finally {
@@ -318,20 +329,21 @@ export function Registration({
                       </div>
                     )}
 
+                    {isActorLoading && !isSigningIn && (
+                      <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Connecting to server...
+                      </p>
+                    )}
                     <Button
                       type="submit"
-                      disabled={isSigningIn || !isActorReady}
+                      disabled={isSigningIn}
                       className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2"
                     >
                       {isSigningIn ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Signing In...
-                        </>
-                      ) : !isActorReady ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Loading...
                         </>
                       ) : (
                         "Sign In →"
@@ -469,20 +481,21 @@ export function Registration({
                       />
                     </div>
 
+                    {isActorLoading && !isRegistering && (
+                      <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Connecting to server...
+                      </p>
+                    )}
                     <Button
                       type="submit"
-                      disabled={isRegistering || !isActorReady}
+                      disabled={isRegistering}
                       className="w-full bg-gain text-background hover:opacity-90 font-semibold glow-gain mt-2"
                     >
                       {isRegistering ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Creating Account...
-                        </>
-                      ) : !isActorReady ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Loading...
                         </>
                       ) : (
                         "Create Account →"

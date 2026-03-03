@@ -37,7 +37,6 @@ interface RegistrationProps {
     mobile: string,
     password: string,
   ) => Promise<void>;
-  isActorLoading?: boolean;
   actorFailed?: boolean;
   onRetryActor?: () => void;
 }
@@ -45,7 +44,6 @@ interface RegistrationProps {
 export function Registration({
   onLogin,
   onRegister,
-  isActorLoading = false,
   actorFailed = false,
   onRetryActor,
 }: RegistrationProps) {
@@ -97,6 +95,45 @@ export function Registration({
     }
   };
 
+  // ─── Classify error messages into user-friendly strings ──────────────────
+  const classifyError = (message: string): string => {
+    const lowerMsg = message.toLowerCase();
+    if (
+      lowerMsg.includes("stopped") ||
+      lowerMsg.includes("ic0508") ||
+      lowerMsg.includes("wasm") ||
+      lowerMsg.includes("no module") ||
+      lowerMsg.includes("canister")
+    ) {
+      return "Server is temporarily unavailable. Please try again in 30 seconds.";
+    }
+    if (
+      lowerMsg.includes("starting") ||
+      lowerMsg.includes("connection failed") ||
+      lowerMsg.includes("retry")
+    ) {
+      return "Server is starting up. Please wait a few seconds and try again.";
+    }
+    if (
+      lowerMsg.includes("already registered") ||
+      lowerMsg.includes("already exists")
+    ) {
+      return "This email is already registered. Please sign in.";
+    }
+    if (lowerMsg.includes("not registered")) {
+      return "No account found with this email. Please sign up.";
+    }
+    if (
+      lowerMsg.includes("invalid") ||
+      lowerMsg.includes("not found") ||
+      lowerMsg.includes("wrong") ||
+      lowerMsg.includes("incorrect")
+    ) {
+      return "Invalid email or password. Please try again.";
+    }
+    return message || "An error occurred. Please try again.";
+  };
+
   // ─── Sign Up validation & submit ─────────────────────────────────────────
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,30 +171,7 @@ export function Registration({
     } catch (err) {
       toast.dismiss("register");
       const message = err instanceof Error ? err.message : String(err);
-      const lowerMsg = message.toLowerCase();
-      if (
-        lowerMsg.includes("connection failed") ||
-        lowerMsg.includes("retry connection")
-      ) {
-        toast.error(
-          "Server is starting up. Please wait 10 seconds and try again.",
-        );
-      } else if (
-        lowerMsg.includes("already registered") ||
-        lowerMsg.includes("already exists")
-      ) {
-        toast.error("This email is already registered. Please sign in.");
-      } else if (
-        lowerMsg.includes("unable to connect") ||
-        lowerMsg.includes("server") ||
-        lowerMsg.includes("loading")
-      ) {
-        toast.error("Server is starting. Please wait a moment and try again.");
-      } else if (lowerMsg.includes("empty") || lowerMsg.includes("invalid")) {
-        toast.error(message);
-      } else {
-        toast.error(message || "Registration failed. Please try again.");
-      }
+      toast.error(classifyError(message));
     } finally {
       setIsRegistering(false);
     }
@@ -185,41 +199,7 @@ export function Registration({
     } catch (err) {
       toast.dismiss("signin");
       const message = err instanceof Error ? err.message : String(err);
-      const lowerMsg = message.toLowerCase();
-      if (
-        lowerMsg.includes("connection failed") ||
-        lowerMsg.includes("retry connection")
-      ) {
-        setSignInError(
-          "Server is starting up. Please wait 10 seconds and try again.",
-        );
-      } else if (
-        lowerMsg.includes("invalid") ||
-        lowerMsg.includes("not found") ||
-        lowerMsg.includes("wrong") ||
-        lowerMsg.includes("incorrect")
-      ) {
-        setSignInError("Invalid email or password. Please try again.");
-      } else if (lowerMsg.includes("not registered")) {
-        setSignInError("No account found with this email. Please sign up.");
-      } else if (
-        lowerMsg.includes("unable to connect") ||
-        lowerMsg.includes("server") ||
-        lowerMsg.includes("loading")
-      ) {
-        setSignInError(
-          "Server is starting up. Please wait a moment and try again.",
-        );
-      } else if (lowerMsg.includes("stopped") || lowerMsg.includes("ic0508")) {
-        setSignInError(
-          "Server is restarting. Please wait 30 seconds and try again.",
-        );
-      } else {
-        setSignInError(
-          message ||
-            "Sign in failed. Please check your credentials and try again.",
-        );
-      }
+      setSignInError(classifyError(message));
     } finally {
       setIsSigningIn(false);
     }
@@ -396,16 +376,6 @@ export function Registration({
                         "Sign In →"
                       )}
                     </Button>
-
-                    {/* Server starting indicator */}
-                    {isActorLoading && !actorFailed && (
-                      <div className="flex items-center justify-center gap-2 mt-2">
-                        <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
-                        <span className="text-xs text-amber-500/80">
-                          Server starting... you can sign in now
-                        </span>
-                      </div>
-                    )}
                   </form>
 
                   {/* Security note */}
@@ -552,16 +522,6 @@ export function Registration({
                         "Create Account →"
                       )}
                     </Button>
-
-                    {/* Server starting indicator */}
-                    {isActorLoading && !actorFailed && (
-                      <div className="flex items-center justify-center gap-2 mt-2">
-                        <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
-                        <span className="text-xs text-amber-500/80">
-                          Server starting... you can sign up now
-                        </span>
-                      </div>
-                    )}
                   </form>
                 </CardContent>
               </TabsContent>

@@ -55,14 +55,14 @@ function AppContent() {
       actorFailedRef.current = false;
       return;
     }
-    // If actor is null and not fetching, start a failure timer (30s to account for canister startup)
+    // If actor is null and not fetching, start a failure timer (8s)
     if (!actor && !actorFetching) {
       const timer = setTimeout(() => {
         if (!actorRef.current) {
           setActorFailed(true);
           actorFailedRef.current = true;
         }
-      }, 30_000);
+      }, 8_000);
       return () => clearTimeout(timer);
     }
   }, [actor, actorFetching]);
@@ -102,13 +102,13 @@ function AppContent() {
       return;
     }
 
-    // Token exists but actor not ready yet — wait up to 5s then drop to login
+    // Token exists but actor not ready yet — wait up to 3s then drop to login
     if (!actor && actorFetching) {
       const timeout = setTimeout(() => {
         logout();
         setSessionVerifying(false);
         setSessionVerified(false);
-      }, 5_000);
+      }, 3_000);
       return () => clearTimeout(timeout);
     }
 
@@ -128,14 +128,14 @@ function AppContent() {
     if (!actor) return;
 
     setSessionVerifying(true);
-    // 5-second timeout on the actual session check
+    // 3-second timeout on the actual session check
     const timeoutId = setTimeout(() => {
       logout();
       setCurrentUser(null);
       setIsAdmin(false);
       setSessionVerified(false);
       setSessionVerifying(false);
-    }, 5_000);
+    }, 3_000);
 
     actor
       .getSessionFull(token)
@@ -221,8 +221,8 @@ function AppContent() {
         "Server connection failed. Please tap 'Retry Connection' below.",
       );
     }
-    // Poll up to 30 seconds for the actor to become available (canister may be starting)
-    for (let i = 0; i < 60; i++) {
+    // Poll up to 6 seconds (12 × 500ms) for the actor to become available
+    for (let i = 0; i < 12; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (actorRef.current) return actorRef.current;
       if (actorFailedRef.current) {
@@ -232,13 +232,26 @@ function AppContent() {
       }
     }
     throw new Error(
-      "Server is taking too long to respond. Please wait a moment and try again.",
+      "Server is starting up. Please wait a few seconds and try again.",
     );
   }, []);
 
   // Strip IC canister trap message prefixes so users see clean error text
   const extractErrorMessage = useCallback((err: unknown): string => {
     const raw = err instanceof Error ? err.message : String(err);
+    const lower = raw.toLowerCase();
+
+    // Detect stopped/wasm/no-module canister errors first — before any string slicing
+    if (
+      lower.includes("stopped") ||
+      lower.includes("ic0508") ||
+      lower.includes("no wasm") ||
+      lower.includes("no module") ||
+      lower.includes("wasm module")
+    ) {
+      return "Server is temporarily unavailable. Please try again in 30 seconds.";
+    }
+
     // IC canister errors look like: "Call failed: ... Canister ... trapped: <actual message>"
     const trapIdx = raw.lastIndexOf("trapped: ");
     if (trapIdx !== -1) return raw.slice(trapIdx + "trapped: ".length).trim();
@@ -337,7 +350,6 @@ function AppContent() {
         <Registration
           onLogin={handleLogin}
           onRegister={handleRegister}
-          isActorLoading={!actor || actorFetching}
           actorFailed={actorFailed}
           onRetryActor={handleRetryActor}
         />

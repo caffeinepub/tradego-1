@@ -44,33 +44,6 @@ function AppContent() {
   );
   const [seedAttempted, setSeedAttempted] = useState(false);
 
-  // Actor failure detection — if actor stays null after 8 seconds of not fetching
-  const [actorFailed, setActorFailed] = useState(false);
-  const actorFailedRef = useRef(false);
-
-  useEffect(() => {
-    // Reset failure state when actor becomes available
-    if (actor) {
-      setActorFailed(false);
-      actorFailedRef.current = false;
-      return;
-    }
-    // If actor is null and not fetching, start a failure timer (8s)
-    if (!actor && !actorFetching) {
-      const timer = setTimeout(() => {
-        if (!actorRef.current) {
-          setActorFailed(true);
-          actorFailedRef.current = true;
-        }
-      }, 8_000);
-      return () => clearTimeout(timer);
-    }
-  }, [actor, actorFetching]);
-
-  const handleRetryActor = useCallback(() => {
-    window.location.reload();
-  }, []);
-
   // Auth state — if no token is stored, skip verification immediately
   const [sessionVerified, setSessionVerified] = useState(false);
   const [sessionVerifying, setSessionVerifying] = useState(() => {
@@ -102,13 +75,13 @@ function AppContent() {
       return;
     }
 
-    // Token exists but actor not ready yet — wait up to 3s then drop to login
+    // Token exists but actor not ready yet — wait up to 8s then drop to login
     if (!actor && actorFetching) {
       const timeout = setTimeout(() => {
         logout();
         setSessionVerifying(false);
         setSessionVerified(false);
-      }, 3_000);
+      }, 8_000);
       return () => clearTimeout(timeout);
     }
 
@@ -120,7 +93,7 @@ function AppContent() {
           setSessionVerifying(false);
           setSessionVerified(false);
         }
-      }, 2_000);
+      }, 3_000);
       return () => clearTimeout(timeout);
     }
 
@@ -215,25 +188,15 @@ function AppContent() {
     NonNullable<typeof actor>
   > => {
     if (actorRef.current) return actorRef.current;
-    // If actor already failed, throw immediately with a helpful message
-    if (actorFailedRef.current) {
-      throw new Error(
-        "Server connection failed. Please tap 'Retry Connection' below.",
-      );
-    }
-    // Poll up to 6 seconds (12 × 500ms) for the actor to become available
-    for (let i = 0; i < 12; i++) {
+    // Poll up to 15 seconds (30 × 500ms) for the actor to become available
+    for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (actorRef.current) return actorRef.current;
-      if (actorFailedRef.current) {
-        throw new Error(
-          "Server connection failed. Please check your internet connection and try again.",
-        );
-      }
     }
-    throw new Error(
-      "Server is starting up. Please wait a few seconds and try again.",
-    );
+    // Auto-reload page to reconnect instead of surfacing an error
+    window.location.reload();
+    // This line is unreachable but TypeScript needs a return
+    throw new Error("Reconnecting...");
   }, []);
 
   // Strip IC canister trap message prefixes so users see clean error text
@@ -249,7 +212,7 @@ function AppContent() {
       lower.includes("no module") ||
       lower.includes("wasm module")
     ) {
-      return "Server is temporarily unavailable. Please try again in 30 seconds.";
+      return "Connecting to server... Please try again.";
     }
 
     // IC canister errors look like: "Call failed: ... Canister ... trapped: <actual message>"
@@ -347,12 +310,7 @@ function AppContent() {
   if (!sessionVerified || !token) {
     return (
       <>
-        <Registration
-          onLogin={handleLogin}
-          onRegister={handleRegister}
-          actorFailed={actorFailed}
-          onRetryActor={handleRetryActor}
-        />
+        <Registration onLogin={handleLogin} onRegister={handleRegister} />
         <Toaster richColors theme="dark" position="top-right" />
       </>
     );

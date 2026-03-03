@@ -19,7 +19,6 @@ import {
   RefreshCw,
   Shield,
   TrendingUp,
-  WifiOff,
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -37,16 +36,9 @@ interface RegistrationProps {
     mobile: string,
     password: string,
   ) => Promise<void>;
-  actorFailed?: boolean;
-  onRetryActor?: () => void;
 }
 
-export function Registration({
-  onLogin,
-  onRegister,
-  actorFailed = false,
-  onRetryActor,
-}: RegistrationProps) {
+export function Registration({ onLogin, onRegister }: RegistrationProps) {
   // Sign Up state
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -62,6 +54,7 @@ export function Registration({
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [signUpError, setSignUpError] = useState<string | null>(null);
 
   // Forgot Password dialog
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -103,16 +96,13 @@ export function Registration({
       lowerMsg.includes("ic0508") ||
       lowerMsg.includes("wasm") ||
       lowerMsg.includes("no module") ||
-      lowerMsg.includes("canister")
-    ) {
-      return "Server is temporarily unavailable. Please try again in 30 seconds.";
-    }
-    if (
-      lowerMsg.includes("starting") ||
+      lowerMsg.includes("canister") ||
+      lowerMsg.includes("reconnecting") ||
+      lowerMsg.includes("could not connect") ||
       lowerMsg.includes("connection failed") ||
-      lowerMsg.includes("retry")
+      lowerMsg.includes("starting")
     ) {
-      return "Server is starting up. Please wait a few seconds and try again.";
+      return "Connecting to server... Please try again.";
     }
     if (
       lowerMsg.includes("already registered") ||
@@ -135,8 +125,9 @@ export function Registration({
   };
 
   // ─── Sign Up validation & submit ─────────────────────────────────────────
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSignUp = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setSignUpError(null);
     if (!name.trim()) {
       toast.error("Full name is required");
       return;
@@ -171,15 +162,20 @@ export function Registration({
     } catch (err) {
       toast.dismiss("register");
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(classifyError(message));
+      const friendly = classifyError(message);
+      setSignUpError(friendly);
+      // Auto-retry on connection errors
+      if (friendly.includes("Connecting to server")) {
+        setTimeout(() => handleSignUp(), 3000);
+      }
     } finally {
       setIsRegistering(false);
     }
   };
 
   // ─── Sign In submit ───────────────────────────────────────────────────────
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSignIn = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setSignInError(null);
 
     if (!signInEmail.trim()) {
@@ -199,7 +195,12 @@ export function Registration({
     } catch (err) {
       toast.dismiss("signin");
       const message = err instanceof Error ? err.message : String(err);
-      setSignInError(classifyError(message));
+      const friendly = classifyError(message);
+      setSignInError(friendly);
+      // Auto-retry on connection errors
+      if (friendly.includes("Connecting to server")) {
+        setTimeout(() => handleSignIn(), 3000);
+      }
     } finally {
       setIsSigningIn(false);
     }
@@ -227,31 +228,6 @@ export function Registration({
       />
 
       <div className="relative z-10 w-full max-w-md animate-fade-in-up">
-        {/* Server connection failure banner */}
-        {actorFailed && (
-          <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
-            <WifiOff className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-destructive leading-snug">
-                Server connection failed
-              </p>
-              <p className="text-xs text-destructive/80 mt-0.5">
-                Please check your internet connection and try again.
-              </p>
-            </div>
-            {onRetryActor && (
-              <button
-                type="button"
-                onClick={onRetryActor}
-                className="flex items-center gap-1.5 text-xs font-semibold text-destructive border border-destructive/40 rounded-md px-2.5 py-1.5 hover:bg-destructive/20 transition-colors shrink-0"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-
         {/* TradeGo.1 Logo Banner */}
         <div className="flex justify-center mb-6">
           <img
@@ -304,7 +280,7 @@ export function Registration({
                   <p className="text-sm text-muted-foreground mb-4">
                     Enter your email and password to access your account.
                   </p>
-                  <form onSubmit={handleSignIn} className="space-y-3">
+                  <form onSubmit={(e) => handleSignIn(e)} className="space-y-3">
                     {/* Email */}
                     <div className="space-y-1.5">
                       <Label
@@ -356,9 +332,19 @@ export function Registration({
                     {signInError && (
                       <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 p-2.5">
                         <AlertCircle className="w-3.5 h-3.5 text-destructive mt-0.5 shrink-0" />
-                        <p className="text-xs text-destructive">
-                          {signInError}
-                        </p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-destructive">
+                            {signInError}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handleSignIn()}
+                            className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-destructive hover:underline"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Retry
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -400,7 +386,7 @@ export function Registration({
                     <span className="text-gain font-semibold">₹0</span> —
                     deposit to start trading.
                   </p>
-                  <form onSubmit={handleSignUp} className="space-y-3">
+                  <form onSubmit={(e) => handleSignUp(e)} className="space-y-3">
                     {/* Full Name */}
                     <div className="space-y-1.5">
                       <Label
@@ -507,6 +493,26 @@ export function Registration({
                         autoComplete="new-password"
                       />
                     </div>
+
+                    {/* Sign up error message */}
+                    {signUpError && (
+                      <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 p-2.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-destructive mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-destructive">
+                            {signUpError}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handleSignUp()}
+                            className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-destructive hover:underline"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Retry
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <Button
                       type="submit"

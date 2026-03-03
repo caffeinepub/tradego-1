@@ -71,28 +71,28 @@ interface IndexConfig {
   strikeCount: number;
 }
 
-// ─── March 2026 Index configurations ────────────────────────────────────────
+// ─── March 3, 2026 Index configurations ─────────────────────────────────────
 
 const INDEX_CONFIGS: Record<string, IndexConfig> = {
   NIFTY: {
     label: "NIFTY 50",
-    spotPrice: 22124.7,
+    spotPrice: 22800,
     strikeStep: 50,
-    atmStrike: 22100,
+    atmStrike: 22800,
     strikeCount: 10,
   },
   SENSEX: {
     label: "SENSEX",
-    spotPrice: 73218.4,
+    spotPrice: 75200,
     strikeStep: 200,
-    atmStrike: 73200,
+    atmStrike: 75200,
     strikeCount: 10,
   },
   BANKNIFTY: {
     label: "BANK NIFTY",
-    spotPrice: 47386.5,
+    spotPrice: 49100,
     strikeStep: 100,
-    atmStrike: 47400,
+    atmStrike: 49100,
     strikeCount: 10,
   },
 };
@@ -467,9 +467,9 @@ export function OptionChain() {
 
   const atmStrike = config.atmStrike;
 
-  // 2026 expiry options
+  // March 2026 expiry options
   const expiryOptions = [
-    { value: "weekly", label: "Weekly (06 Mar 2026)" },
+    { value: "weekly", label: "Weekly (05 Mar 2026)" },
     { value: "monthly", label: "Monthly (26 Mar 2026)" },
     { value: "quarterly", label: "Quarterly (25 Jun 2026)" },
   ];
@@ -506,7 +506,7 @@ export function OptionChain() {
             Option Chain
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            2026 options data · Auto-refreshes every 5 seconds
+            March 3, 2026 · Auto-refreshes every 5 seconds
           </p>
         </div>
         <div className="flex items-center gap-2">

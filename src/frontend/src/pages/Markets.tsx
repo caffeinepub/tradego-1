@@ -153,6 +153,11 @@ export function Markets({ instruments, liveprices, isLoading }: MarketsProps) {
         </span>
       </div>
 
+      {/* Data timestamp */}
+      <p className="text-[11px] text-muted-foreground/70 font-mono -mt-2">
+        Prices as of March 3, 2026 · Live simulation active
+      </p>
+
       {/* Instruments table */}
       <Card className="bg-card border-border shadow-card overflow-hidden">
         {/* Table header */}

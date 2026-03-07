@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Activity,
   AlertTriangle,
   Loader2,
   Search,
@@ -12,12 +13,13 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { type Instrument, OrderType, Side, TradeType } from "../backend.d";
 import { PriceCell } from "../components/PriceCell";
+import { TradingViewWidget } from "../components/TradingViewWidget";
 import type { LivePriceMap } from "../hooks/useLivePrices";
-import { usePlaceOrder } from "../hooks/useQueries";
+import { useGetPortfolioSummary, usePlaceOrder } from "../hooks/useQueries";
 import {
   calculateMargin,
   formatBalance,
@@ -28,7 +30,9 @@ import {
   getMarketHoursText,
   getMarketLabel,
   getMarketStatus,
+  getTimeUntilOpen,
 } from "../utils/marketHours";
+import { toTVSymbol } from "../utils/tvSymbol";
 
 interface TradeProps {
   instruments: Instrument[];
@@ -43,6 +47,7 @@ export function Trade({
   isLoading,
   initialInstrument,
 }: TradeProps) {
+  const PAGE_SIZE = 50;
   const [selected, setSelected] = useState<Instrument | null>(
     initialInstrument ?? null,
   );
@@ -52,8 +57,10 @@ export function Trade({
   const [orderType, setOrderType] = useState<OrderType>(OrderType.market);
   const [quantity, setQuantity] = useState("1");
   const [limitPrice, setLimitPrice] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const placeOrder = usePlaceOrder();
+  const { data: portfolio } = useGetPortfolioSummary();
 
   const filteredInstruments = instruments.filter(
     (i) =>
@@ -61,6 +68,12 @@ export function Trade({
       i.symbol.toLowerCase().includes(search.toLowerCase()) ||
       i.name.toLowerCase().includes(search.toLowerCase()),
   );
+
+  // Reset pagination when search changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: search change should reset visible count
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [search]);
 
   const handleSelect = (inst: Instrument) => {
     setSelected(inst);
@@ -71,6 +84,8 @@ export function Trade({
   const lp = selected ? liveprices[selected.symbol] : undefined;
   const currentPrice = lp?.price ?? selected?.currentPrice ?? 0;
   const marketStatus = selected ? getMarketStatus(selected.category) : null;
+  const isMarketClosed = marketStatus === "closed";
+  const timeUntilOpen = selected ? getTimeUntilOpen(selected.category) : "";
   const execPrice =
     orderType === OrderType.market
       ? currentPrice
@@ -116,6 +131,23 @@ export function Trade({
 
   return (
     <div className="p-4 max-w-5xl mx-auto">
+      {/* Live TradingView Chart — shown when instrument is selected */}
+      {selected && (
+        <div className="mb-4" data-ocid="trade.chart.canvas_target">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5" />
+              Live Chart — {selected.symbol}
+            </h2>
+          </div>
+          <TradingViewWidget
+            symbol={toTVSymbol(selected.symbol, selected.category)}
+            height={380}
+            theme="dark"
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
         {/* Left: Instrument selector */}
         <div className="space-y-3">
@@ -162,66 +194,83 @@ export function Trade({
                   No instruments found
                 </div>
               ) : (
-                filteredInstruments.map((inst) => {
-                  const ilp = liveprices[inst.symbol];
-                  const iprice = ilp?.price ?? inst.currentPrice;
-                  const pct =
-                    ((iprice - inst.previousClose) / inst.previousClose) * 100;
-                  const isPositive = pct >= 0;
-                  const isActive = selected?.symbol === inst.symbol;
+                <>
+                  {filteredInstruments.slice(0, visibleCount).map((inst) => {
+                    const ilp = liveprices[inst.symbol];
+                    const iprice = ilp?.price ?? inst.currentPrice;
+                    const pct =
+                      ((iprice - inst.previousClose) / inst.previousClose) *
+                      100;
+                    const isPositive = pct >= 0;
+                    const isActive = selected?.symbol === inst.symbol;
 
-                  return (
-                    <button
-                      key={inst.symbol}
-                      type="button"
-                      onClick={() => handleSelect(inst)}
-                      className={[
-                        "w-full grid grid-cols-[2fr_1.5fr_1fr] gap-2 px-4 py-2.5 items-center text-left transition-colors",
-                        isActive
-                          ? "bg-gain-muted/30 border-l-2 border-gain"
-                          : "hover:bg-accent/20 border-l-2 border-transparent",
-                      ].join(" ")}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-mono font-semibold text-foreground">
-                            {inst.symbol}
-                          </span>
-                          <Badge
-                            variant="outline"
-                            className="text-[9px] border-border text-muted-foreground capitalize px-1 py-0 h-4 hidden sm:inline-flex"
-                          >
-                            {inst.category}
-                          </Badge>
+                    return (
+                      <button
+                        key={inst.symbol}
+                        type="button"
+                        onClick={() => handleSelect(inst)}
+                        className={[
+                          "w-full grid grid-cols-[2fr_1.5fr_1fr] gap-2 px-4 py-2.5 items-center text-left transition-colors",
+                          isActive
+                            ? "bg-gain-muted/30 border-l-2 border-gain"
+                            : "hover:bg-accent/20 border-l-2 border-transparent",
+                        ].join(" ")}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-mono font-semibold text-foreground">
+                              {inst.symbol}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] border-border text-muted-foreground capitalize px-1 py-0 h-4 hidden sm:inline-flex"
+                            >
+                              {inst.category}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {inst.name}
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {inst.name}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <PriceCell
-                          instrument={inst}
-                          livePrice={ilp}
-                          showChange={false}
-                          compact
-                        />
-                      </div>
-                      <div className="text-right">
-                        <span
-                          className={`text-xs font-mono font-semibold flex items-center justify-end gap-0.5 ${isPositive ? "text-gain" : "text-loss"}`}
-                        >
-                          {isPositive ? (
-                            <TrendingUp className="w-2.5 h-2.5" />
-                          ) : (
-                            <TrendingDown className="w-2.5 h-2.5" />
-                          )}
-                          {isPositive ? "+" : ""}
-                          {pct.toFixed(2)}%
-                        </span>
-                      </div>
+                        <div className="text-right">
+                          <PriceCell
+                            instrument={inst}
+                            livePrice={ilp}
+                            showChange={false}
+                            compact
+                          />
+                        </div>
+                        <div className="text-right">
+                          <span
+                            className={`text-xs font-mono font-semibold flex items-center justify-end gap-0.5 ${isPositive ? "text-gain" : "text-loss"}`}
+                          >
+                            {isPositive ? (
+                              <TrendingUp className="w-2.5 h-2.5" />
+                            ) : (
+                              <TrendingDown className="w-2.5 h-2.5" />
+                            )}
+                            {isPositive ? "+" : ""}
+                            {pct.toFixed(2)}%
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {visibleCount < filteredInstruments.length && (
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                      className="w-full py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground border-t border-border bg-secondary/20 hover:bg-secondary/40 transition-colors"
+                    >
+                      Load{" "}
+                      {Math.min(
+                        PAGE_SIZE,
+                        filteredInstruments.length - visibleCount,
+                      )}{" "}
+                      more instruments
                     </button>
-                  );
-                })
+                  )}
+                </>
               )}
             </div>
           </Card>
@@ -452,18 +501,49 @@ export function Trade({
                     <span className="text-muted-foreground">Brokerage</span>
                     <span className="text-gain font-bold">₹0.00</span>
                   </div>
+                  {portfolio && margin > 0 && (
+                    <>
+                      <div className="flex justify-between text-muted-foreground border-t border-border pt-1.5">
+                        <span>Current Balance</span>
+                        <span className="text-foreground">
+                          {formatBalance(portfolio.availableBalance)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between font-semibold">
+                        <span className="text-muted-foreground">
+                          Balance After Trade
+                        </span>
+                        <span className={isBuy ? "text-loss" : "text-gain"}>
+                          {isBuy ? "−" : "+"}
+                          {formatBalance(margin)}{" "}
+                          <span className="text-muted-foreground font-normal">
+                            →{" "}
+                            {formatBalance(
+                              Math.max(
+                                0,
+                                portfolio.availableBalance +
+                                  (isBuy ? -margin : margin),
+                              ),
+                            )}
+                          </span>
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Place order button */}
                 <Button
                   type="button"
                   onClick={handlePlaceOrder}
-                  disabled={placeOrder.isPending}
+                  disabled={placeOrder.isPending || isMarketClosed}
                   className={[
                     "w-full font-bold text-sm h-11",
-                    isBuy
-                      ? "bg-gain text-background hover:opacity-90 glow-gain"
-                      : "bg-loss text-foreground hover:opacity-90 glow-loss",
+                    isMarketClosed
+                      ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
+                      : isBuy
+                        ? "bg-gain text-background hover:opacity-90 glow-gain"
+                        : "bg-loss text-foreground hover:opacity-90 glow-loss",
                   ].join(" ")}
                 >
                   {placeOrder.isPending ? (
@@ -471,10 +551,17 @@ export function Trade({
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Placing Order...
                     </>
+                  ) : isMarketClosed ? (
+                    "MARKET CLOSED"
                   ) : (
                     `PLACE ${isBuy ? "BUY" : "SELL"} ORDER`
                   )}
                 </Button>
+                {isMarketClosed && timeUntilOpen && (
+                  <p className="text-[11px] text-center text-gold/80 mt-1">
+                    {timeUntilOpen}
+                  </p>
+                )}
               </CardContent>
             </Card>
           ) : (

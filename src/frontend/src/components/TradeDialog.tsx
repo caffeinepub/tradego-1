@@ -8,18 +8,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Target, TrendingDown } from "lucide-react";
+import { AlertTriangle, Loader2, Target, TrendingDown } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { type Instrument, OrderType, Side, TradeType } from "../backend.d";
 import type { LivePrice } from "../hooks/useLivePrices";
-import { usePlaceOrder } from "../hooks/useQueries";
+import { useGetPortfolioSummary, usePlaceOrder } from "../hooks/useQueries";
 import {
   calculateMargin,
   formatBalance,
   formatPrice,
   getLeverage,
 } from "../utils/format";
+import { getMarketStatus, getTimeUntilOpen } from "../utils/marketHours";
 
 interface TradeDialogProps {
   instrument: Instrument | null;
@@ -45,8 +46,13 @@ export function TradeDialog({
   const [targetPrice, setTargetPrice] = useState("");
 
   const placeOrder = usePlaceOrder();
+  const { data: portfolio } = useGetPortfolioSummary();
 
   if (!instrument) return null;
+
+  const marketStatus = getMarketStatus(instrument.category);
+  const isMarketClosed = marketStatus === "closed";
+  const timeUntilOpen = getTimeUntilOpen(instrument.category);
 
   const currentPrice = livePrice?.price ?? instrument.currentPrice;
   const execPrice =
@@ -63,41 +69,33 @@ export function TradeDialog({
 
   const handlePlaceOrder = async () => {
     if (!qty || qty <= 0) {
-      toast.error("Valid quantity enter karein");
+      toast.error("Enter a valid quantity");
       return;
     }
     if (
       orderType !== OrderType.market &&
       (!limitPrice || Number.parseFloat(limitPrice) <= 0)
     ) {
-      toast.error("Limit/Stop-Loss order ke liye valid price enter karein");
+      toast.error("Enter a valid price for limit/stop-loss order");
       return;
     }
     if (stopLossPrice && slPrice > 0) {
       if (side === Side.buy && slPrice >= execPrice) {
-        toast.error(
-          "Buy order mein Stop Loss price, entry price se kam honi chahiye",
-        );
+        toast.error("Stop Loss must be below entry price for buy orders");
         return;
       }
       if (side === Side.sell && slPrice <= execPrice) {
-        toast.error(
-          "Sell order mein Stop Loss price, entry price se zyada honi chahiye",
-        );
+        toast.error("Stop Loss must be above entry price for sell orders");
         return;
       }
     }
     if (targetPrice && tpPrice > 0) {
       if (side === Side.buy && tpPrice <= execPrice) {
-        toast.error(
-          "Buy order mein Target price, entry price se zyada honi chahiye",
-        );
+        toast.error("Target Price must be above entry price for buy orders");
         return;
       }
       if (side === Side.sell && tpPrice >= execPrice) {
-        toast.error(
-          "Sell order mein Target price, entry price se kam honi chahiye",
-        );
+        toast.error("Target Price must be below entry price for sell orders");
         return;
       }
     }
@@ -120,7 +118,7 @@ export function TradeDialog({
       toast.success(successMsg);
       onClose();
     } catch (_err) {
-      toast.error("Order place karne mein error. Margin balance check karein.");
+      toast.error("Failed to place order. Check your margin balance.");
     }
   };
 
@@ -130,7 +128,7 @@ export function TradeDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="bg-card border-border max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
             <span className="font-mono font-bold text-foreground">
               {instrument.symbol}
             </span>
@@ -140,6 +138,12 @@ export function TradeDialog({
             >
               {instrument.category}
             </Badge>
+            {isMarketClosed && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gold-muted text-gold border border-gold/30">
+                <AlertTriangle className="w-2.5 h-2.5" />
+                MARKET CLOSED
+              </span>
+            )}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">{instrument.name}</p>
         </DialogHeader>
@@ -439,6 +443,35 @@ export function TradeDialog({
               <span>Brokerage</span>
               <span className="text-gain font-bold">₹0.00</span>
             </div>
+            {portfolio && margin > 0 && (
+              <>
+                <div className="flex justify-between text-muted-foreground border-t border-border pt-1.5">
+                  <span>Current Balance</span>
+                  <span className="text-foreground">
+                    {formatBalance(portfolio.availableBalance)}
+                  </span>
+                </div>
+                <div className="flex justify-between font-semibold">
+                  <span className="text-muted-foreground">
+                    Balance After Trade
+                  </span>
+                  <span className={isBuy ? "text-loss" : "text-gain"}>
+                    {isBuy ? "−" : "+"}
+                    {formatBalance(margin)}{" "}
+                    <span className="text-muted-foreground font-normal">
+                      →{" "}
+                      {formatBalance(
+                        Math.max(
+                          0,
+                          portfolio.availableBalance +
+                            (isBuy ? -margin : margin),
+                        ),
+                      )}
+                    </span>
+                  </span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Place Order */}
@@ -446,12 +479,14 @@ export function TradeDialog({
             type="button"
             data-ocid="trade_dialog.place_order.submit_button"
             onClick={handlePlaceOrder}
-            disabled={placeOrder.isPending}
+            disabled={placeOrder.isPending || isMarketClosed}
             className={[
               "w-full font-bold text-sm h-11",
-              isBuy
-                ? "bg-gain text-background hover:opacity-90 glow-gain"
-                : "bg-loss text-foreground hover:opacity-90 glow-loss",
+              isMarketClosed
+                ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
+                : isBuy
+                  ? "bg-gain text-background hover:opacity-90 glow-gain"
+                  : "bg-loss text-foreground hover:opacity-90 glow-loss",
             ].join(" ")}
           >
             {placeOrder.isPending ? (
@@ -459,10 +494,17 @@ export function TradeDialog({
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Placing Order...
               </>
+            ) : isMarketClosed ? (
+              "MARKET CLOSED"
             ) : (
               `PLACE ${isBuy ? "BUY" : "SELL"} ORDER`
             )}
           </Button>
+          {isMarketClosed && timeUntilOpen && (
+            <p className="text-[11px] text-center text-gold/80 mt-1">
+              {timeUntilOpen}
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>

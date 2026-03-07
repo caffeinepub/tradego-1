@@ -1313,19 +1313,6 @@ export function Account({ onLogout, userName }: AccountProps) {
           </div>
         </CardContent>
       </Card>
-
-      {/* Footer */}
-      <p className="text-center text-xs text-muted-foreground pb-2">
-        © {new Date().getFullYear()}. Built with ❤️ using{" "}
-        <a
-          href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-gain hover:underline"
-        >
-          caffeine.ai
-        </a>
-      </p>
     </div>
   );
 }

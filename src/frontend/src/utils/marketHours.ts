@@ -59,3 +59,51 @@ export function getMarketLabel(category: string): string {
   if (category === "forex") return "Forex";
   return category;
 }
+
+export function getTimeUntilOpen(category: string): string {
+  if (category === "crypto") return "";
+
+  // Get current IST time
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(
+    now.getTime() + istOffset + now.getTimezoneOffset() * 60 * 1000,
+  );
+
+  const day = istTime.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const hours = istTime.getHours();
+  const minutes = istTime.getMinutes();
+  const timeMinutes = hours * 60 + minutes;
+
+  if (category === "stock") {
+    // NSE: Mon–Fri, 9:00 AM – 3:30 PM IST
+    if (day === 0 || day === 6) return "Opens Mon 9:00 AM";
+    if (timeMinutes < 9 * 60) return "Opens at 9:00 AM";
+    if (timeMinutes >= 15 * 60 + 30) {
+      if (day === 5) return "Opens Mon 9:00 AM";
+      return "Opens tomorrow 9:00 AM";
+    }
+    return "";
+  }
+
+  if (category === "commodity") {
+    // MCX: Mon–Fri, 9:00 AM – 11:55 PM IST
+    if (day === 0 || day === 6) return "Opens Mon 9:00 AM";
+    if (timeMinutes < 9 * 60) return "Opens at 9:00 AM";
+    if (timeMinutes >= 23 * 60 + 55) {
+      if (day === 5) return "Opens Mon 9:00 AM";
+      return "Opens tomorrow 9:00 AM";
+    }
+    return "";
+  }
+
+  if (category === "forex") {
+    // Forex: Mon 5:00 AM – Sat 5:00 AM IST
+    if (day === 0) return "Opens Mon 5:00 AM"; // Sunday
+    if (day === 6 && timeMinutes >= 5 * 60) return "Opens Mon 5:00 AM"; // Sat after 5 AM
+    if (day === 1 && timeMinutes < 5 * 60) return "Opens Mon 5:00 AM"; // Mon before 5 AM
+    return "";
+  }
+
+  return "Check market hours";
+}

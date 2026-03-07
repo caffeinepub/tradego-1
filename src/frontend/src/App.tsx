@@ -1,5 +1,4 @@
 import { Toaster } from "@/components/ui/sonner";
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -30,7 +29,15 @@ type Tab =
   | "account";
 
 function AppContent() {
-  const { token, setToken, logout } = useSession();
+  const {
+    token,
+    setToken,
+    logout,
+    cachedUser,
+    setCachedUser,
+    cachedIsAdmin,
+    setCachedIsAdmin,
+  } = useSession();
   const { actor, isFetching: actorFetching } = useActor();
   // Keep a ref so polling closures always see the latest actor value
   const actorRef = useRef(actor);
@@ -45,16 +52,21 @@ function AppContent() {
   const [seedAttempted, setSeedAttempted] = useState(false);
 
   // Auth state — if no token is stored, skip verification immediately
-  const [sessionVerified, setSessionVerified] = useState(false);
-  const [sessionVerifying, setSessionVerifying] = useState(() => {
+  // If we have a cached user, consider session verified immediately (optimistic restore)
+  const [sessionVerified, setSessionVerified] = useState(() => {
     try {
-      return !!localStorage.getItem("tradego_session_token");
+      const hasToken = !!localStorage.getItem("tradego_session_token");
+      const hasUser = !!localStorage.getItem("tradego_user");
+      return hasToken && hasUser;
     } catch {
       return false;
     }
   });
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [_sessionVerifying, setSessionVerifying] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(
+    cachedUser as User | null,
+  );
+  const [isAdmin, setIsAdmin] = useState<boolean>(cachedIsAdmin);
 
   const { data: instruments = [], isLoading: instrumentsLoading } =
     useGetAllInstruments();
@@ -66,6 +78,8 @@ function AppContent() {
 
   // On mount / token change: verify session via backend
   // If there's no token, resolve immediately without waiting for actor
+  // IMPORTANT: On network errors or timeouts, keep the user logged in (don't logout)
+  // Only logout if the backend explicitly says the token is invalid (returns null/false)
   useEffect(() => {
     if (!token) {
       setSessionVerified(false);
@@ -75,47 +89,41 @@ function AppContent() {
       return;
     }
 
-    // Token exists but actor not ready yet — wait up to 8s then drop to login
+    // Token exists but actor not ready yet — if we have cached user, stay logged in
+    // Don't logout on connection issues
     if (!actor && actorFetching) {
-      const timeout = setTimeout(() => {
-        logout();
+      // If we have cached data, show the app immediately; verify in background
+      if (cachedUser) {
+        setSessionVerified(true);
         setSessionVerifying(false);
-        setSessionVerified(false);
-      }, 8_000);
-      return () => clearTimeout(timeout);
+      }
+      return;
     }
 
-    // Actor not available and not fetching — drop to login after short grace
+    // Actor not available and not fetching — if we have cached user, stay logged in
     if (!actor && !actorFetching) {
-      const timeout = setTimeout(() => {
-        if (!actorRef.current) {
-          logout();
-          setSessionVerifying(false);
-          setSessionVerified(false);
-        }
-      }, 3_000);
-      return () => clearTimeout(timeout);
+      if (cachedUser) {
+        setSessionVerified(true);
+        setSessionVerifying(false);
+      }
+      return;
     }
 
     // TypeScript: at this point actor must be non-null (checked above)
     if (!actor) return;
 
-    setSessionVerifying(true);
-    // 3-second timeout on the actual session check
+    // Background session verification — don't block UI, don't logout on failure
     const timeoutId = setTimeout(() => {
-      logout();
-      setCurrentUser(null);
-      setIsAdmin(false);
-      setSessionVerified(false);
+      // Timeout: keep user logged in with cached data, just stop the spinner
       setSessionVerifying(false);
-    }, 3_000);
+    }, 5_000);
 
     actor
       .getSessionFull(token)
       .then((result) => {
         clearTimeout(timeoutId);
         if (!result) {
-          // Token invalid or expired
+          // Backend explicitly says token is invalid — logout
           logout();
           setCurrentUser(null);
           setIsAdmin(false);
@@ -124,21 +132,34 @@ function AppContent() {
           const [user, adminStatus] = result;
           setCurrentUser(user);
           setIsAdmin(adminStatus);
+          setCachedUser({ name: user.name, email: user.email });
+          setCachedIsAdmin(adminStatus);
           setSessionVerified(true);
         }
         setSessionVerifying(false);
       })
       .catch(() => {
         clearTimeout(timeoutId);
-        // Token invalid or expired
-        logout();
-        setCurrentUser(null);
-        setIsAdmin(false);
-        setSessionVerified(false);
+        // Network/canister error: keep user logged in with cached data
+        // Only clear session if we have no cached user either
+        if (!cachedUser) {
+          logout();
+          setCurrentUser(null);
+          setIsAdmin(false);
+          setSessionVerified(false);
+        }
         setSessionVerifying(false);
       });
     return () => clearTimeout(timeoutId);
-  }, [token, actor, actorFetching, logout]);
+  }, [
+    token,
+    actor,
+    actorFetching,
+    logout,
+    cachedUser,
+    setCachedUser,
+    setCachedIsAdmin,
+  ]);
 
   // Seed instruments if empty
   const seedInstruments = useCallback(async () => {
@@ -235,13 +256,21 @@ function AppContent() {
         setToken(newToken);
         setCurrentUser(user);
         setIsAdmin(adminStatus);
+        setCachedUser({ name: user.name, email: user.email });
+        setCachedIsAdmin(adminStatus);
         setSessionVerified(true);
         return { user, isAdmin: adminStatus };
       } catch (err) {
         throw new Error(extractErrorMessage(err));
       }
     },
-    [waitForActor, setToken, extractErrorMessage],
+    [
+      waitForActor,
+      setToken,
+      setCachedUser,
+      setCachedIsAdmin,
+      extractErrorMessage,
+    ],
   );
 
   const handleRegister = useCallback(
@@ -261,13 +290,21 @@ function AppContent() {
         setToken(newToken);
         setCurrentUser(user);
         setIsAdmin(adminStatus);
+        setCachedUser({ name: user.name, email: user.email });
+        setCachedIsAdmin(adminStatus);
         setSessionVerified(true);
         toast.success("Account created! Welcome to TradeGo.1");
       } catch (err) {
         throw new Error(extractErrorMessage(err));
       }
     },
-    [waitForActor, setToken, extractErrorMessage],
+    [
+      waitForActor,
+      setToken,
+      setCachedUser,
+      setCachedIsAdmin,
+      extractErrorMessage,
+    ],
   );
 
   const handleLogout = useCallback(async () => {
@@ -290,21 +327,6 @@ function AppContent() {
       setTradeInstrument(instrument);
     }
   };
-
-  // Verifying stored session token — show spinner only when we have a token
-  // and are waiting for the actor to check it (avoids showing login form briefly)
-  if (sessionVerifying && token) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-full bg-gain-muted flex items-center justify-center mx-auto mb-3">
-            <Loader2 className="w-6 h-6 text-gain animate-spin" />
-          </div>
-          <p className="text-sm text-muted-foreground">Verifying session...</p>
-        </div>
-      </div>
-    );
-  }
 
   // Not logged in — show registration/login page immediately (actor may still be loading)
   if (!sessionVerified || !token) {

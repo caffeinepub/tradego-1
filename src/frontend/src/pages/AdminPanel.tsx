@@ -3208,21 +3208,25 @@ export function AdminPanel({ onLogout }: AdminPanelProps) {
           ))}
         </aside>
 
-        {/* Mobile bottom nav */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-sidebar border-t border-border flex">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setActiveTab(item.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${
-                activeTab === item.id ? "text-primary" : "text-muted-foreground"
-              }`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
+        {/* Mobile bottom nav — horizontally scrollable */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-sidebar border-t border-border overflow-x-auto">
+          <div className="flex min-w-max">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={`flex flex-col items-center gap-1 py-2.5 px-3 text-[10px] font-medium transition-colors whitespace-nowrap min-w-[56px] ${
+                  activeTab === item.id
+                    ? "text-primary border-t-2 border-primary -mt-px"
+                    : "text-muted-foreground border-t-2 border-transparent -mt-px"
+                }`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Main content */}

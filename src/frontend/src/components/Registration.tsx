@@ -568,18 +568,6 @@ export function Registration({ onLogin, onRegister }: RegistrationProps) {
             Download App
           </Button>
         </div>
-
-        <p className="text-center text-xs text-muted-foreground mt-4">
-          © {new Date().getFullYear()}. Built with love using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-gain hover:underline"
-          >
-            caffeine.ai
-          </a>
-        </p>
       </div>
 
       {/* ── Forgot Password Dialog ────────────────────────────────────────── */}
